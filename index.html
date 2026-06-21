@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0009</title>
+  <title>CineEdit v1.0010</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -163,6 +163,21 @@
     #toast{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--gold-dim);color:var(--gold);padding:8px 14px;border-radius:6px;font-size:.73rem;font-family:'Space Mono',monospace;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none;z-index:999;max-width:280px}
     #toast.show{opacity:1;transform:translateY(0)}
 
+    /* ── STAMP OVERLAY in viewer ── */
+    #stamp-overlay{
+      position:absolute;
+      z-index:15;
+      pointer-events:none;
+      display:none; /* shown when checkbox checked + stampImg loaded */
+      /* positioning set by JS */
+    }
+    #stamp-overlay img{
+      display:block;
+      /* size set by JS */
+    }
+    /* invert filter for black mode */
+    #stamp-overlay.black img{ filter:invert(1); }
+
     /* ── STAMP ── */
     .stamp-drop{border:1.5px dashed var(--border);border-radius:6px;padding:12px 8px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
     .stamp-drop:hover,.stamp-drop.drag-over{border-color:var(--gold-dim);background:rgba(201,168,76,.03)}
@@ -200,7 +215,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0009</span>
+  <span class="vbadge">v1.0010</span>
 </header>
 
 <div id="api-banner">
@@ -271,39 +286,39 @@
 
       <div class="stamp-toggle">
         <input type="checkbox" id="stamp-enabled">
-        <label for="stamp-enabled">Aplicar carimbo no download</label>
+        <label for="stamp-enabled">Mostrar carimbo na foto</label>
       </div>
 
-      <div id="stamp-opts">
-        <!-- Drop zone for stamp image -->
-        <div class="stamp-drop" id="stamp-drop">
-          <p>Arraste ou <strong>clique</strong> para carregar imagem do carimbo</p>
-          <img id="stamp-preview" class="stamp-preview" alt="Preview carimbo">
-          <button class="stamp-clear" id="stamp-clear" style="display:none" title="Remover carimbo">✕</button>
-        </div>
-        <input type="file" id="stamp-file-input" accept="image/*">
+      <!-- Upload always visible -->
+      <div class="stamp-drop" id="stamp-drop" style="margin-top:8px">
+        <p>Arraste ou <strong>clique</strong> para carregar o carimbo</p>
+        <img id="stamp-preview" class="stamp-preview" alt="Preview carimbo">
+        <button class="stamp-clear" id="stamp-clear" style="display:none" title="Remover">✕</button>
+      </div>
+      <input type="file" id="stamp-file-input" accept="image/*">
 
+      <div id="stamp-opts" style="display:none">
         <!-- Color -->
-        <div class="color-row">
+        <div class="color-row" style="margin-top:8px">
           <label>Cor:</label>
           <label class="color-opt sel"><input type="radio" name="stamp-color" value="white" checked> Branco</label>
           <label class="color-opt"><input type="radio" name="stamp-color" value="black"> Preto</label>
         </div>
 
-        <!-- Size -->
-        <div class="stamp-size-row sl-row" style="margin-top:10px">
+        <!-- Size + Opacity -->
+        <div class="sl-row" style="margin-top:10px">
           <div class="sl-item"><label>Tamanho <span id="v-stamp-size">25</span>%</label><input type="range" id="a-stamp-size" min="5" max="60" value="25"></div>
           <div class="sl-item"><label>Opacidade <span id="v-stamp-opacity">90</span>%</label><input type="range" id="a-stamp-opacity" min="10" max="100" value="90"></div>
         </div>
 
-        <!-- Position grid -->
+        <!-- Position grid 3x3 + centro -->
         <div class="sb-title" style="margin-top:10px">Posição</div>
         <div class="pos-grid">
           <button class="pos-btn" data-pos="top-left">↖ Cima<br>Esq</button>
           <button class="pos-btn" data-pos="top-center">↑ Cima<br>Meio</button>
           <button class="pos-btn" data-pos="top-right">↗ Cima<br>Dir</button>
           <button class="pos-btn" data-pos="mid-left">← Meio<br>Esq</button>
-          <button class="pos-btn" data-pos="mid-center">· Meio<br>Centro</button>
+          <button class="pos-btn" data-pos="center">· Centro</button>
           <button class="pos-btn" data-pos="mid-right">→ Meio<br>Dir</button>
           <button class="pos-btn" data-pos="bot-left">↙ Baixo<br>Esq</button>
           <button class="pos-btn on" data-pos="bot-center">↓ Baixo<br>Meio</button>
@@ -383,6 +398,9 @@
         <div class="vload-title" id="vload-title">Processando…</div>
         <div class="vload-steps" id="vload-steps"></div>
       </div>
+
+      <!-- STAMP OVERLAY (live preview) -->
+      <div id="stamp-overlay"><img id="stamp-overlay-img" src="" alt="carimbo"></div>
     </div>
 
     <div id="log"></div>
@@ -396,7 +414,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0009';
+const VERSION = 'v1.0010';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -690,6 +708,9 @@ function refreshViewer(){
   }
 
   dlWrap.style.display=hasEdit?'':'none';
+
+  // Reposition stamp overlay
+  updateStampOverlay();
 }
 
 // ── SLIDER DRAG ────────────────────────────────────────────
@@ -1041,7 +1062,7 @@ async function analyzePhoto(key,imgUrl,style){
   const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
 
   const STYLE_REFS = {
-    golden:`Retrato esportivo cinematográfico estilo Instagram fitness influencer. Manter totalmente a identidade, proporções e naturalidade do sujeito, aparência realista e alto padrão editorial. Estética de golden hour: luz solar baixa, quente e dourada incidindo lateralmente, criando rim light suave destacando contornos do corpo de forma natural. Atmosfera de treino outdoor em estrada arborizada, fundo suavemente desfocado e profundidade de campo rasa estilo 85mm f/1.8. Color grading moderno de redes sociais fitness: tons quentes e dourados predominantes, pele levemente bronzeada e saudável, contraste médio com pretos suavemente elevados, sombras discretamente aquecidas, verdes do ambiente puxados para dourado e oliva, visual premium e motivacional. Leve glow cinematográfico nas áreas iluminadas pelo sol e sutil lens flare natural sem exagero. Nitidez e definição muscular realistas, sem parecer artificial, preservando textura natural da pele. Estilo influenciadora fitness em campanha esportiva, sensação de energia, disciplina e movimento, fotografia editorial de alta qualidade, look moderno de Instagram, ultra realista, sem aparência de IA, sem exagero de saturação, sem HDR artificial.`,
+    golden:`Edite a imagem mantendo fidelidade total ao sujeito original, incluindo identidade facial, proporções corporais, expressão, pose e composição, sem recriar a cena ou alterar elementos estruturais do ambiente. Aplicar apenas pós-processamento fotográfico realista estilo Instagram fitness influencer com ajustes leves e controlados. Realizar color grading suave com leve aquecimento de balanço de branco simulando fim de tarde discreto (efeito golden hour sutil e não dominante), preservando naturalidade geral da iluminação. Ajustar contraste de forma moderada para melhorar profundidade visual sem criar efeito dramático ou artificial, mantendo aparência documental e realista. Suavizar sombras preservando detalhes e textura original da imagem. Aplicar correção leve de tonalidade de pele para aparência saudável, atlética e natural, sem suavização excessiva, sem efeito plástico e preservando textura real da pele. Realçar discretamente cores do ambiente (vegetação e estrada) de forma equilibrada e natural, evitando saturação excessiva ou dominância de tons quentes. Manter fundo coerente com fotografia real sem alterações estruturais. Aplicar leve separação entre sujeito e fundo apenas por ajustes fotográficos naturais, sem modificar profundidade real ou geometria da cena. O resultado final deve parecer uma fotografia esportiva real capturada com câmera profissional (85mm, f/1.8 look), com edição leve de estúdio, estilo Instagram fitness influencer moderno, limpo e inspirador, sem aparência de IA, sem HDR exagerado, sem glow forte, sem lens flare intenso, sem estilização artificial ou reconstrução da imagem.`,
     noir:`Noir: alto contraste extremo, quase sem meios-tons, sombras preto puro, luzes branco-azuladas, atmosfera pesada e misteriosa. Sem HDR artificial.`,
     teal:`Teal & Orange moderno: peles alaranjadas quentes, fundos e sombras teal profundo, split de cor equilibrado e natural, estética de blockbuster cinema.`,
     desat:`Desaturado moderno premium: paleta opaca e suave, pretos levantados (matte look), estética de série dramática premium, sem exagero de filtro.`
@@ -1065,15 +1086,15 @@ REGRAS OBRIGATÓRIAS:
 
 Retorne APENAS JSON puro sem markdown:
 {
-  "contrastBoost": float,      // -1 a +1. Moderado: +0.15 a +0.35
-  "warmthShift": float,        // -1 a +1. Golden: +0.25 a +0.55 (dourado natural, não laranja)
-  "saturationShift": float,    // -1 a +1. Golden: +0.10 a +0.25 (sutil)
-  "shadowLift": float,         // 0 a 1. Golden: 0.05 a 0.15 (pretos levemente levantados)
-  "shadowCrush": float,        // 0 a 1. Golden: 0.05 a 0.15 (moderado)
-  "vignetteBoost": float,      // 0 a 1. Golden: 0.10 a 0.25 (suave)
-  "sunIntensityBoost": float,  // 0 a 1. Golden: 0.10 a 0.25 (glow sutil, não estouro)
-  "sunDirX": float,            // 0 a 1. Posição X do sol — identifique na foto
-  "sunDirY": float             // 0 a 1. Posição Y do sol — identifique na foto
+  "contrastBoost": float,      // -1 a +1. Moderado e natural: +0.10 a +0.25
+  "warmthShift": float,        // -1 a +1. Golden suave: +0.15 a +0.35 (NÃO dominante)
+  "saturationShift": float,    // -1 a +1. Sutil: +0.05 a +0.18
+  "shadowLift": float,         // 0 a 1. Leve: 0.05 a 0.12 (preservar detalhe de sombra)
+  "shadowCrush": float,        // 0 a 1. Mínimo: 0.02 a 0.08
+  "vignetteBoost": float,      // 0 a 1. Sutil: 0.05 a 0.18
+  "sunIntensityBoost": float,  // 0 a 1. Muito sutil: 0.05 a 0.15 (sem glow forte)
+  "sunDirX": float,            // 0 a 1. Identifique posição da luz na cena
+  "sunDirY": float             // 0 a 1. Identifique posição da luz na cena
 }`}
       ]}]
     })
@@ -1163,21 +1184,79 @@ function applyLUTSimple(origUrl,lut){
 }
 
 // ── STAMP ──────────────────────────────────────────────────
-let stampImg   = null;  // loaded Image object
+let stampImg   = null;
 let stampColor = 'white';
 let stampPos   = 'bot-center';
-let stampSize  = 25;    // % of image width
-let stampOpa   = 90;    // %
+let stampSize  = 25;
+let stampOpa   = 90;
 
-// Toggle stamp options visibility
+const stampOverlay    = g('stamp-overlay');
+const stampOverlayImg = g('stamp-overlay-img');
+
+// Helper: compute stamp position/size in viewer space
+function updateStampOverlay(){
+  const enabled = g('stamp-enabled').checked;
+  if(!enabled || !stampImg){
+    stampOverlay.style.display='none';
+    return;
+  }
+
+  const viewer = g('viewer');
+  const vw = viewer.offsetWidth;
+  const vh = viewer.offsetHeight;
+
+  // Stamp width = % of viewer width
+  const sw = Math.round(vw * stampSize / 100);
+  const sh = Math.round(sw * stampImg.naturalHeight / stampImg.naturalWidth);
+
+  const margin = Math.round(vw * .03);
+  let left, top;
+
+  const pos = stampPos;
+  // X
+  if(pos.includes('left'))       left = margin;
+  else if(pos.includes('right')) left = vw - sw - margin;
+  else                           left = Math.round((vw - sw) / 2); // center/mid-center/top-center/bot-center
+
+  // Y
+  if(pos.includes('top'))        top = margin;
+  else if(pos==='center')        top = Math.round((vh - sh) / 2);
+  else if(pos.includes('mid'))   top = Math.round((vh - sh) / 2);
+  else                           top = vh - sh - margin; // bot-*
+
+  stampOverlay.style.cssText = `
+    position:absolute;
+    left:${left}px;
+    top:${top}px;
+    width:${sw}px;
+    height:${sh}px;
+    z-index:15;
+    pointer-events:none;
+    opacity:${stampOpa/100};
+    display:block;
+  `;
+
+  stampOverlayImg.style.cssText = `width:${sw}px;height:${sh}px;object-fit:contain;display:block;`;
+
+  // Color: CSS filter for black inversion
+  stampOverlay.className = stampColor === 'black' ? 'black' : '';
+
+  stampOverlayImg.src = stampImg.src;
+}
+
+// Recalculate on resize
+window.addEventListener('resize', updateStampOverlay);
+
+// Checkbox toggles overlay visibility AND shows/hides stamp-opts
 g('stamp-enabled').addEventListener('change', function(){
-  g('stamp-opts').style.display = this.checked ? '' : 'none';
+  g('stamp-opts').style.display = (this.checked && stampImg) ? '' : 'none';
+  updateStampOverlay();
 });
 
 // Stamp file drop/click
-const stampDrop = g('stamp-drop');
+const stampDrop   = g('stamp-drop');
 const stampFileIn = g('stamp-file-input');
-stampDrop.addEventListener('click', e => { if(e.target!==g('stamp-clear')) stampFileIn.click(); });
+stampDrop.addEventListener('click', e => { if(e.target !== g('stamp-clear')) stampFileIn.click(); });
 stampDrop.addEventListener('dragover', e => { e.preventDefault(); stampDrop.classList.add('drag-over'); });
 stampDrop.addEventListener('dragleave', () => stampDrop.classList.remove('drag-over'));
 stampDrop.addEventListener('drop', e => { e.preventDefault(); stampDrop.classList.remove('drag-over'); loadStampFile(e.dataTransfer.files[0]); });
@@ -1185,86 +1264,95 @@ stampFileIn.addEventListener('change', e => { if(e.target.files[0]) loadStampFil
 
 g('stamp-clear').addEventListener('click', e => {
   e.stopPropagation();
-  stampImg=null;
-  const prev=g('stamp-preview'); prev.style.display='none'; prev.src='';
-  g('stamp-clear').style.display='none';
-  stampDrop.querySelector('p').style.display='';
+  stampImg = null;
+  const prev = g('stamp-preview');
+  prev.style.display = 'none'; prev.src = '';
+  g('stamp-clear').style.display = 'none';
+  stampDrop.querySelector('p').style.display = '';
+  g('stamp-opts').style.display = 'none';
+  stampOverlay.style.display = 'none';
 });
 
 function loadStampFile(file){
-  if(!file||!file.type.startsWith('image/')) return;
-  const url=URL.createObjectURL(file);
-  const img=new Image();
-  img.onload=()=>{
-    stampImg=img;
-    const prev=g('stamp-preview');
-    prev.src=url; prev.style.display='block';
-    prev.className='stamp-preview'+(stampColor==='white'?' white-bg':'');
-    g('stamp-clear').style.display='';
-    stampDrop.querySelector('p').style.display='none';
+  if(!file || !file.type.startsWith('image/')) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    stampImg = img;
+    // sidebar preview
+    const prev = g('stamp-preview');
+    prev.src = url;
+    prev.style.display = 'block';
+    prev.className = 'stamp-preview' + (stampColor==='white' ? ' white-bg' : '');
+    g('stamp-clear').style.display = '';
+    stampDrop.querySelector('p').style.display = 'none';
+    // Show options panel if checkbox is on
+    if(g('stamp-enabled').checked) g('stamp-opts').style.display = '';
+    // Update overlay
+    updateStampOverlay();
   };
-  img.src=url;
+  img.src = url;
 }
 
-// Color selection
-document.querySelectorAll('[name="stamp-color"]').forEach(r=>{
-  r.addEventListener('change', ()=>{
-    stampColor=r.value;
-    document.querySelectorAll('.color-opt').forEach(l=>l.classList.remove('sel'));
+// Color
+document.querySelectorAll('[name="stamp-color"]').forEach(r => {
+  r.addEventListener('change', () => {
+    stampColor = r.value;
+    document.querySelectorAll('.color-opt').forEach(l => l.classList.remove('sel'));
     r.closest('.color-opt').classList.add('sel');
-    const prev=g('stamp-preview');
-    if(prev.src) prev.className='stamp-preview'+(stampColor==='white'?' white-bg':'');
+    const prev = g('stamp-preview');
+    if(prev.src) prev.className = 'stamp-preview' + (stampColor==='white' ? ' white-bg' : '');
+    updateStampOverlay();
   });
 });
 
-// Position grid
-document.querySelectorAll('.pos-btn').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('.pos-btn').forEach(x=>x.classList.remove('on'));
+// Position
+document.querySelectorAll('.pos-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.pos-btn').forEach(x => x.classList.remove('on'));
     b.classList.add('on');
-    stampPos=b.dataset.pos;
+    stampPos = b.dataset.pos;
+    updateStampOverlay();
   });
 });
 
-// Size / opacity sliders
-g('a-stamp-size').addEventListener('input', function(){ stampSize=+this.value; g('v-stamp-size').textContent=this.value; });
-g('a-stamp-opacity').addEventListener('input', function(){ stampOpa=+this.value; g('v-stamp-opacity').textContent=this.value; });
+// Size / opacity
+g('a-stamp-size').addEventListener('input', function(){
+  stampSize = +this.value;
+  g('v-stamp-size').textContent = this.value;
+  updateStampOverlay();
+});
+g('a-stamp-opacity').addEventListener('input', function(){
+  stampOpa = +this.value;
+  g('v-stamp-opacity').textContent = this.value;
+  updateStampOverlay();
+});
 
+// drawStamp for canvas export (unchanged)
 function drawStamp(ctx, cw, ch){
   if(!stampImg || !g('stamp-enabled').checked) return;
-
-  // Size
   const sw = Math.round(cw * stampSize / 100);
   const sh = Math.round(sw * stampImg.naturalHeight / stampImg.naturalWidth);
-
-  // Off-screen canvas for color manipulation
-  const tmp=document.createElement('canvas');
-  tmp.width=stampImg.naturalWidth; tmp.height=stampImg.naturalHeight;
-  const tc=tmp.getContext('2d');
-  tc.drawImage(stampImg,0,0);
-
-  if(stampColor==='black'){
-    // Invert: white→black. Use 'difference' blend against white fill
-    tc.globalCompositeOperation='difference';
-    tc.fillStyle='white';
-    tc.fillRect(0,0,tmp.width,tmp.height);
-    tc.globalCompositeOperation='source-over';
+  const tmp = document.createElement('canvas');
+  tmp.width = stampImg.naturalWidth; tmp.height = stampImg.naturalHeight;
+  const tc = tmp.getContext('2d');
+  tc.drawImage(stampImg, 0, 0);
+  if(stampColor === 'black'){
+    tc.globalCompositeOperation = 'difference';
+    tc.fillStyle = 'white';
+    tc.fillRect(0, 0, tmp.width, tmp.height);
+    tc.globalCompositeOperation = 'source-over';
   }
-
-  // Position
-  const margin=Math.round(cw*.03);
-  let x,y;
-  const pos=stampPos;
-  // X
-  if(pos.includes('left'))        x=margin;
-  else if(pos.includes('right'))  x=cw-sw-margin;
-  else                            x=Math.round((cw-sw)/2); // center
-  // Y
-  if(pos.includes('top'))         y=margin;
-  else if(pos.includes('mid'))    y=Math.round((ch-sh)/2);
-  else                            y=ch-sh-margin; // bot
-
-  ctx.globalAlpha = stampOpa/100;
+  const margin = Math.round(cw * .03);
+  let x, y;
+  const pos = stampPos;
+  if(pos.includes('left'))       x = margin;
+  else if(pos.includes('right')) x = cw - sw - margin;
+  else                           x = Math.round((cw - sw) / 2);
+  if(pos.includes('top'))        y = margin;
+  else if(pos==='center'||pos.includes('mid')) y = Math.round((ch - sh) / 2);
+  else                           y = ch - sh - margin;
+  ctx.globalAlpha = stampOpa / 100;
   ctx.drawImage(tmp, x, y, sw, sh);
   ctx.globalAlpha = 1;
 }
