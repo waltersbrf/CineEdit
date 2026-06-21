@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0010</title>
+  <title>CineEdit v1.0011</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -215,7 +215,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0010</span>
+  <span class="vbadge">v1.0011</span>
 </header>
 
 <div id="api-banner">
@@ -414,7 +414,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0010';
+const VERSION = 'v1.0011';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -1062,7 +1062,7 @@ async function analyzePhoto(key,imgUrl,style){
   const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
 
   const STYLE_REFS = {
-    golden:`Edite a imagem mantendo fidelidade total ao sujeito original, incluindo identidade facial, proporções corporais, expressão, pose e composição, sem recriar a cena ou alterar elementos estruturais do ambiente. Aplicar apenas pós-processamento fotográfico realista estilo Instagram fitness influencer com ajustes leves e controlados. Realizar color grading suave com leve aquecimento de balanço de branco simulando fim de tarde discreto (efeito golden hour sutil e não dominante), preservando naturalidade geral da iluminação. Ajustar contraste de forma moderada para melhorar profundidade visual sem criar efeito dramático ou artificial, mantendo aparência documental e realista. Suavizar sombras preservando detalhes e textura original da imagem. Aplicar correção leve de tonalidade de pele para aparência saudável, atlética e natural, sem suavização excessiva, sem efeito plástico e preservando textura real da pele. Realçar discretamente cores do ambiente (vegetação e estrada) de forma equilibrada e natural, evitando saturação excessiva ou dominância de tons quentes. Manter fundo coerente com fotografia real sem alterações estruturais. Aplicar leve separação entre sujeito e fundo apenas por ajustes fotográficos naturais, sem modificar profundidade real ou geometria da cena. O resultado final deve parecer uma fotografia esportiva real capturada com câmera profissional (85mm, f/1.8 look), com edição leve de estúdio, estilo Instagram fitness influencer moderno, limpo e inspirador, sem aparência de IA, sem HDR exagerado, sem glow forte, sem lens flare intenso, sem estilização artificial ou reconstrução da imagem.`,
+    golden:`Editar a imagem mantendo total fidelidade ao sujeito original, sem alterar identidade, proporções, expressão, pose ou composição. Preservar completamente a cena original. Aplicar apenas edição fotográfica realista estilo Lightroom, com aparência natural e documental de fotografia esportiva em ambiente externo. Ajustar balanço de branco para leve aquecimento natural típico de final de tarde (golden hour realista e sutil), sem exagero de tons alaranjados ou dourados. Manter luz coerente e natural da cena, sem simulação de iluminação nova. Aplicar contraste moderado e suave curva em S leve, mantendo aparência natural da fotografia RAW. Preservar textura real da pele sem suavização artificial. Ajustar sombras levemente para recuperar detalhes sem criar efeito dramático. Manter highlights naturais sem estourar e sem glow. Reforçar discretamente a saturação de forma global e muito leve, apenas para manter aparência vibrante natural da vegetação e do ambiente, sem estilização. Manter cores fiéis à realidade, evitando qualquer tendência cinematográfica, estética publicitária ou filtro forte. Não adicionar lens flare, não adicionar glow, não simular iluminação nova, não aplicar estilo Instagram exagerado. Resultado final deve parecer uma fotografia real capturada com câmera profissional e editada levemente no Lightroom por fotógrafo esportivo, com estética natural, limpa, equilibrada e realista.`,
     noir:`Noir: alto contraste extremo, quase sem meios-tons, sombras preto puro, luzes branco-azuladas, atmosfera pesada e misteriosa. Sem HDR artificial.`,
     teal:`Teal & Orange moderno: peles alaranjadas quentes, fundos e sombras teal profundo, split de cor equilibrado e natural, estética de blockbuster cinema.`,
     desat:`Desaturado moderno premium: paleta opaca e suave, pretos levantados (matte look), estética de série dramática premium, sem exagero de filtro.`
@@ -1193,11 +1193,11 @@ let stampOpa   = 90;
 const stampOverlay    = g('stamp-overlay');
 const stampOverlayImg = g('stamp-overlay-img');
 
-// Helper: compute stamp position/size in viewer space
+// Helper: position stamp overlay relative to #viewer
 function updateStampOverlay(){
   const enabled = g('stamp-enabled').checked;
   if(!enabled || !stampImg){
-    stampOverlay.style.display='none';
+    stampOverlay.style.display = 'none';
     return;
   }
 
@@ -1207,39 +1207,49 @@ function updateStampOverlay(){
 
   // Stamp width = % of viewer width
   const sw = Math.round(vw * stampSize / 100);
-  const sh = Math.round(sw * stampImg.naturalHeight / stampImg.naturalWidth);
+  const sh = Math.round(sw * (stampImg.naturalHeight / stampImg.naturalWidth));
 
-  const margin = Math.round(vw * .03);
-  let left, top;
-
+  const margin = Math.round(Math.min(vw, vh) * .03);
   const pos = stampPos;
-  // X
+
+  // X position
+  let left;
   if(pos.includes('left'))       left = margin;
   else if(pos.includes('right')) left = vw - sw - margin;
-  else                           left = Math.round((vw - sw) / 2); // center/mid-center/top-center/bot-center
+  else                           left = Math.round((vw - sw) / 2);
 
-  // Y
-  if(pos.includes('top'))        top = margin;
-  else if(pos==='center')        top = Math.round((vh - sh) / 2);
-  else if(pos.includes('mid'))   top = Math.round((vh - sh) / 2);
-  else                           top = vh - sh - margin; // bot-*
+  // Y position
+  let top;
+  if(pos.includes('top'))                          top = margin;
+  else if(pos === 'center' || pos.includes('mid')) top = Math.round((vh - sh) / 2);
+  else                                             top = vh - sh - margin;
 
-  stampOverlay.style.cssText = `
-    position:absolute;
-    left:${left}px;
-    top:${top}px;
-    width:${sw}px;
-    height:${sh}px;
-    z-index:15;
-    pointer-events:none;
-    opacity:${stampOpa/100};
-    display:block;
-  `;
+  // Set individual properties — never use cssText (it resets position)
+  stampOverlay.style.position   = 'absolute';
+  stampOverlay.style.left       = left + 'px';
+  stampOverlay.style.top        = top  + 'px';
+  stampOverlay.style.width      = sw   + 'px';
+  stampOverlay.style.height     = sh   + 'px';
+  stampOverlay.style.zIndex     = '15';
+  stampOverlay.style.pointerEvents = 'none';
+  stampOverlay.style.opacity    = String(stampOpa / 100);
+  stampOverlay.style.display    = 'block';
 
-  stampOverlayImg.style.cssText = `width:${sw}px;height:${sh}px;object-fit:contain;display:block;`;
+  stampOverlayImg.style.width       = sw + 'px';
+  stampOverlayImg.style.height      = sh + 'px';
+  stampOverlayImg.style.objectFit   = 'contain';
+  stampOverlayImg.style.display     = 'block';
 
-  // Color: CSS filter for black inversion
-  stampOverlay.className = stampColor === 'black' ? 'black' : '';
+  // Color: CSS filter for black inversion (keep white transparent bg via mix-blend-mode)
+  if(stampColor === 'black'){
+    stampOverlay.className = 'black';
+    // multiply blend makes white areas transparent on dark bg, keeps black text
+    stampOverlay.style.mixBlendMode = 'multiply';
+  } else {
+    stampOverlay.className = '';
+    // screen blend makes black areas transparent on light bg, keeps white
+    stampOverlay.style.mixBlendMode = 'screen';
+  }
 
   stampOverlayImg.src = stampImg.src;
 }
@@ -1302,7 +1312,7 @@ document.querySelectorAll('[name="stamp-color"]').forEach(r => {
     r.closest('.color-opt').classList.add('sel');
     const prev = g('stamp-preview');
     if(prev.src) prev.className = 'stamp-preview' + (stampColor==='white' ? ' white-bg' : '');
-    updateStampOverlay();
+    updateStampOverlay(); // updates blend mode + class
   });
 });
 
