@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CineEdit — Editor Cinematográfico</title>
+  <title>CineEdit — Editor Cinematográfico v1.0002</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
 
@@ -597,7 +597,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="version-badge">v1.0001</span>
+  <span class="version-badge">v1.0002</span>
 </header>
 
 <!-- API KEY BANNER -->
@@ -708,7 +708,7 @@
 
 <script>
 // ── VERSION ──
-const VERSION = 'v1.0001';
+const VERSION = 'v1.0002';
 
 // ── STATE ──
 let files    = [];
@@ -932,31 +932,40 @@ async function callOpenAI(apiKey, b64, mimeType, prompt) {
     body: buildFormData(b64, mimeType, prompt)
   });
 
+  // Parse error body for clear feedback
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+    let errMsg = `HTTP ${resp.status}`;
+    try {
+      const errBody = await resp.json();
+      errMsg = errBody?.error?.message || errBody?.error?.code || errMsg;
+    } catch (_) {}
+    throw new Error(errMsg);
   }
 
   const data = await resp.json();
-  // Returns base64 or URL
-  if (data.data?.[0]?.b64_json) {
-    return 'data:image/png;base64,' + data.data[0].b64_json;
+
+  // gpt-image-1 always returns b64_json
+  const item = data?.data?.[0];
+  if (item?.b64_json) {
+    return 'data:image/png;base64,' + item.b64_json;
   }
-  if (data.data?.[0]?.url) {
-    return data.data[0].url;
+  // Fallback: url (not standard for gpt-image-1 but handle anyway)
+  if (item?.url) {
+    return item.url;
   }
-  throw new Error('Resposta inesperada da API');
+  throw new Error('Resposta inesperada da API: ' + JSON.stringify(data).slice(0, 120));
 }
 
 function buildFormData(b64, mimeType, prompt) {
   const fd   = new FormData();
   const blob = b64ToBlob(b64, mimeType);
-  fd.append('image', blob, 'photo.png');
+  // gpt-image-1: field must be "image[]", no response_format param (always returns b64_json)
+  fd.append('image[]', blob, 'photo.png');
   fd.append('prompt', prompt);
   fd.append('model', 'gpt-image-1');
   fd.append('n', '1');
   fd.append('size', '1024x1024');
-  fd.append('response_format', 'b64_json');
+  fd.append('quality', 'high');
   return fd;
 }
 
