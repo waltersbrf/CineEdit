@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CineEdit — Editor Cinematográfico</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+    :root {
+      --bg:        #0a0a0b;
+      --surface:   #111114;
+      --border:    #222228;
+      --gold:      #c9a84c;
+      --gold-dim:  #6e5a28;
+      --cream:     #e8dcc8;
+      --muted:     #555560;
+      --danger:    #c0392b;
+      --success:   #27ae60;
+      --text:      #d4cfc6;
+      --version:   #c9a84c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .logo-mark {
+      font-family: 'Space Mono', monospace;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: -0.02em;
+    }
+
+    .logo-sub {
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .version-badge {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--version);
+      background: rgba(201,168,76,0.10);
+      border: 1px solid var(--gold-dim);
+      padding: 4px 10px;
+      border-radius: 4px;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── API KEY BANNER ── */
+    #api-banner {
+      background: rgba(201,168,76,0.06);
+      border-bottom: 1px solid var(--gold-dim);
+      padding: 10px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    #api-banner label {
+      font-size: 0.78rem;
+      color: var(--gold);
+      font-family: 'Space Mono', monospace;
+      white-space: nowrap;
+    }
+
+    .key-wrap {
+      display: flex;
+      flex: 1;
+      gap: 8px;
+      min-width: 260px;
+    }
+
+    #api-key-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 12px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #api-key-input:focus { border-color: var(--gold-dim); }
+
+    .key-note {
+      font-size: 0.7rem;
+      color: var(--muted);
+      align-self: center;
+    }
+
+    /* ── MAIN LAYOUT ── */
+    main {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ── SIDEBAR ── */
+    aside {
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      padding: 20px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* Drop Zone */
+    #drop-zone {
+      border: 1.5px dashed var(--border);
+      border-radius: 10px;
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--gold-dim);
+      background: rgba(201,168,76,0.03);
+    }
+
+    #drop-zone .icon {
+      font-size: 2rem;
+      opacity: 0.4;
+    }
+
+    #drop-zone p {
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    #drop-zone strong { color: var(--gold); }
+    #file-input { display: none; }
+
+    /* Style Selector */
+    .style-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .style-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 8px;
+      cursor: pointer;
+      color: var(--muted);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.75rem;
+      text-align: center;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .style-btn:hover { border-color: var(--gold-dim); color: var(--cream); }
+
+    .style-btn.active {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: rgba(201,168,76,0.06);
+    }
+
+    .style-btn .sicon { font-size: 1.3rem; }
+
+    /* Sliders */
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .slider-item label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text);
+      margin-bottom: 5px;
+    }
+
+    .slider-item label span {
+      color: var(--gold);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.7rem;
+    }
+
+    input[type=range] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--gold);
+      cursor: pointer;
+    }
+
+    /* Action Button */
+    #process-btn {
+      width: 100%;
+      background: var(--gold);
+      color: #0a0a0b;
+      border: none;
+      border-radius: 8px;
+      padding: 13px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    #process-btn:hover { background: #d4b55a; }
+    #process-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Progress */
+    #progress-wrap {
+      padding: 14px 22px;
+      display: none;
+    }
+
+    .prog-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .prog-label span { color: var(--gold); font-family: 'Space Mono', monospace; }
+
+    .prog-bar-bg {
+      background: var(--border);
+      border-radius: 3px;
+      height: 4px;
+      overflow: hidden;
+    }
+
+    .prog-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+      border-radius: 3px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+
+    /* ── CANVAS AREA ── */
+    #canvas-area {
+      padding: 28px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Empty State */
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      opacity: 0.35;
+      text-align: center;
+    }
+
+    #empty-state .big-icon { font-size: 4rem; }
+
+    #empty-state p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      max-width: 260px;
+      line-height: 1.6;
+    }
+
+    /* Photo Grid */
+    #photo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    /* Photo Card */
+    .photo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
+      transition: border-color 0.2s;
+    }
+
+    .photo-card:hover { border-color: var(--gold-dim); }
+
+    .photo-card.processing { border-color: var(--gold-dim); }
+    .photo-card.done      { border-color: var(--gold); }
+    .photo-card.error     { border-color: var(--danger); }
+
+    /* Comparison Slider */
+    .compare-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      overflow: hidden;
+      background: #000;
+      cursor: ew-resize;
+      user-select: none;
+    }
+
+    .compare-wrap img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .img-after {
+      clip-path: inset(0 50% 0 0);
+    }
+
+    .compare-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 2px;
+      background: var(--gold);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .compare-handle::before,
+    .compare-handle::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 32px;
+      height: 32px;
+      background: var(--gold);
+      border-radius: 50%;
+    }
+
+    .compare-handle::before { top: calc(50% - 22px); }
+    .compare-handle::after  { top: calc(50% + 6px); display: none; }
+
+    .compare-handle-circle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 36px;
+      height: 36px;
+      background: var(--gold);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      color: #0a0a0b;
+      font-weight: 700;
+      pointer-events: none;
+    }
+
+    /* Overlay states */
+    .card-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10,10,11,0.75);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      backdrop-filter: blur(2px);
+    }
+
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .overlay-text {
+      font-size: 0.78rem;
+      color: var(--gold);
+      font-family: 'Space Mono', monospace;
+    }
+
+    /* Card Footer */
+    .card-footer {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-name {
+      font-size: 0.75rem;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 160px;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .card-btn {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.7rem;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: 'Space Grotesk', sans-serif;
+      transition: all 0.2s;
+    }
+
+    .card-btn:hover { border-color: var(--gold-dim); color: var(--gold); }
+
+    .card-btn.primary {
+      border-color: var(--gold-dim);
+      color: var(--gold);
+    }
+
+    .card-status {
+      font-size: 0.65rem;
+      font-family: 'Space Mono', monospace;
+      padding: 2px 7px;
+      border-radius: 3px;
+    }
+
+    .card-status.waiting    { color: var(--muted); }
+    .card-status.processing { color: var(--gold);  background: rgba(201,168,76,0.08); }
+    .card-status.done       { color: var(--success); }
+    .card-status.error      { color: var(--danger); }
+
+    /* Download All */
+    #dl-all-wrap {
+      display: none;
+      justify-content: flex-end;
+    }
+
+    #dl-all-btn {
+      background: transparent;
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #dl-all-btn:hover { background: rgba(201,168,76,0.08); }
+
+    /* Log */
+    #log-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      max-height: 140px;
+      overflow-y: auto;
+      display: none;
+    }
+
+    .log-line { line-height: 1.8; }
+    .log-line.gold   { color: var(--gold); }
+    .log-line.green  { color: var(--success); }
+    .log-line.red    { color: var(--danger); }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--gold-dim);
+      color: var(--gold);
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-family: 'Space Mono', monospace;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: all 0.3s;
+      pointer-events: none;
+      z-index: 999;
+      max-width: 320px;
+    }
+
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    @media (max-width: 700px) {
+      main { grid-template-columns: 1fr; }
+      aside { max-height: 50vh; }
+      header { padding: 14px 16px; }
+      #api-banner { padding: 10px 16px; }
+      #canvas-area { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <span class="logo-mark">CineEdit</span>
+    <span class="logo-sub">Editor Cinematográfico</span>
+  </div>
+  <span class="version-badge">v1.0001</span>
+</header>
+
+<!-- API KEY BANNER -->
+<div id="api-banner">
+  <label>🔑 OpenAI API Key</label>
+  <div class="key-wrap">
+    <input type="password" id="api-key-input" placeholder="sk-..." autocomplete="off" />
+  </div>
+  <span class="key-note">Usada apenas localmente · nunca enviada a terceiros</span>
+</div>
+
+<!-- MAIN -->
+<main>
+
+  <!-- SIDEBAR -->
+  <aside>
+
+    <!-- Upload -->
+    <div class="sidebar-section">
+      <div class="section-title">Carregar Fotos</div>
+      <div id="drop-zone">
+        <span class="icon">🎞️</span>
+        <p>Arraste fotos aqui ou <strong>clique para selecionar</strong></p>
+        <p>JPG, PNG, WEBP · máx 10 fotos</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*" multiple />
+    </div>
+
+    <!-- Style -->
+    <div class="sidebar-section">
+      <div class="section-title">Estilo Cinematográfico</div>
+      <div class="style-grid">
+        <button class="style-btn active" data-style="golden">
+          <span class="sicon">🟡</span>Golden Hour
+        </button>
+        <button class="style-btn" data-style="noir">
+          <span class="sicon">⚫</span>Noir Contrast
+        </button>
+        <button class="style-btn" data-style="teal-orange">
+          <span class="sicon">🔵</span>Teal & Orange
+        </button>
+        <button class="style-btn" data-style="desaturated">
+          <span class="sicon">🩶</span>Desaturated
+        </button>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="sidebar-section">
+      <div class="section-title">Ajustes Finos</div>
+      <div class="slider-row">
+        <div class="slider-item">
+          <label>Intensidade Cinematográfica <span id="val-intensity">75</span></label>
+          <input type="range" id="ctrl-intensity" min="0" max="100" value="75">
+        </div>
+        <div class="slider-item">
+          <label>Contraste <span id="val-contrast">60</span></label>
+          <input type="range" id="ctrl-contrast" min="0" max="100" value="60">
+        </div>
+        <div class="slider-item">
+          <label>Temperatura de Cor <span id="val-warmth">65</span></label>
+          <input type="range" id="ctrl-warmth" min="0" max="100" value="65">
+        </div>
+        <div class="slider-item">
+          <label>Grain Fílmico <span id="val-grain">30</span></label>
+          <input type="range" id="ctrl-grain" min="0" max="100" value="30">
+        </div>
+      </div>
+    </div>
+
+    <!-- Process Button -->
+    <div class="sidebar-section">
+      <button id="process-btn" disabled>✦ Processar Fotos</button>
+    </div>
+
+    <!-- Progress -->
+    <div id="progress-wrap">
+      <div class="prog-label">
+        Processando… <span id="prog-text">0 / 0</span>
+      </div>
+      <div class="prog-bar-bg">
+        <div class="prog-bar-fill" id="prog-bar"></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- CANVAS -->
+  <div id="canvas-area">
+
+    <div id="empty-state">
+      <div class="big-icon">🎬</div>
+      <p>Adicione suas fotos na lateral e escolha um estilo cinematográfico para começar.</p>
+    </div>
+
+    <div id="dl-all-wrap">
+      <button id="dl-all-btn">⬇ Baixar Todas as Fotos Editadas</button>
+    </div>
+
+    <div id="photo-grid"></div>
+    <div id="log-wrap"></div>
+
+  </div>
+</main>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ── VERSION ──
+const VERSION = 'v1.0001';
+
+// ── STATE ──
+let files    = [];
+let results  = [];
+let selStyle = 'golden';
+let isRunning = false;
+
+const STYLE_PROMPTS = {
+  'golden': `Transform this photo with a cinematic "Golden Hour" grade:
+- Rich, warm amber and gold tones in the highlights
+- Deep, luxurious shadows with a slight cool-blue undertone
+- High contrast, punchy blacks, lifted midtones
+- Skin tones warm and glowing
+- Volumetric light rays where applicable
+- Slight desaturation of greens/cyans, boosted yellows and oranges
+- Film grain texture reminiscent of 35mm stock
+- Aspect: dramatic, award-winning cinematography style (similar to Roger Deakins or Emmanuel Lubezki)
+Output: a visually stunning, cinema-ready image.`,
+  'noir': `Apply a cinematic Noir contrast grade:
+- Extremely high contrast, deep inky blacks
+- Desaturated palette, near monochrome with a slight blue-silver tint
+- Hard, directional shadows
+- Bright, blown-out highlights for drama
+- Moody, mysterious atmosphere
+- Film grain and light leaks`,
+  'teal-orange': `Apply the classic Hollywood Teal & Orange color grade:
+- Warm orange/amber skin tones
+- Shadows and backgrounds shifted to teal/cyan
+- High contrast, cinematic saturation
+- The complementary color split is deliberate and dramatic`,
+  'desaturated': `Apply a modern desaturated cinematic look:
+- Muted, understated colors — reduced saturation across the board
+- Lifted blacks (matte/faded look)
+- Subtle teal or gray color cast in shadows
+- Contemporary drama / prestige TV aesthetics`
+};
+
+// ── ELEMENTS ──
+const dropZone    = document.getElementById('drop-zone');
+const fileInput   = document.getElementById('file-input');
+const photoGrid   = document.getElementById('photo-grid');
+const emptyState  = document.getElementById('empty-state');
+const processBtn  = document.getElementById('process-btn');
+const apiKeyInput = document.getElementById('api-key-input');
+const progWrap    = document.getElementById('progress-wrap');
+const progBar     = document.getElementById('prog-bar');
+const progText    = document.getElementById('prog-text');
+const dlAllWrap   = document.getElementById('dl-all-wrap');
+const logWrap     = document.getElementById('log-wrap');
+const toast       = document.getElementById('toast');
+
+// ── SLIDERS ──
+['intensity','contrast','warmth','grain'].forEach(id => {
+  const el  = document.getElementById('ctrl-' + id);
+  const val = document.getElementById('val-' + id);
+  el.addEventListener('input', () => val.textContent = el.value);
+});
+
+// ── STYLE BUTTONS ──
+document.querySelectorAll('.style-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selStyle = btn.dataset.style;
+  });
+});
+
+// ── DROP ZONE ──
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFiles(Array.from(e.dataTransfer.files));
+});
+fileInput.addEventListener('change', () => handleFiles(Array.from(fileInput.files)));
+
+function handleFiles(incoming) {
+  const imgs = incoming.filter(f => f.type.startsWith('image/'));
+  if (!imgs.length) return showToast('Nenhuma imagem encontrada.');
+  if (imgs.length > 10) { showToast('Máximo 10 fotos por lote.'); imgs.splice(10); }
+
+  files   = imgs;
+  results = imgs.map(() => ({ status: 'waiting', url: null, blob: null }));
+  renderGrid();
+  processBtn.disabled = false;
+  emptyState.style.display = 'none';
+  dlAllWrap.style.display  = 'none';
+  logWrap.style.display    = 'none';
+  logWrap.innerHTML        = '';
+}
+
+// ── RENDER GRID ──
+function renderGrid() {
+  photoGrid.innerHTML = '';
+  files.forEach((file, i) => {
+    const origUrl = URL.createObjectURL(file);
+    const card    = document.createElement('div');
+    card.className = 'photo-card';
+    card.id        = 'card-' + i;
+
+    const r = results[i];
+    const afterUrl = r.url || origUrl;
+
+    card.innerHTML = `
+      <div class="compare-wrap" id="cw-${i}">
+        <img class="img-before" src="${origUrl}" alt="Original" draggable="false">
+        <img class="img-after"  src="${afterUrl}" alt="Editada" draggable="false">
+        <div class="compare-handle" id="ch-${i}">
+          <div class="compare-handle-circle">⇔</div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <span class="card-name">${file.name}</span>
+        <div class="card-actions">
+          <span class="card-status ${r.status}" id="cs-${i}">${statusLabel(r.status)}</span>
+          ${r.status === 'done' ? `<button class="card-btn primary" onclick="downloadOne(${i})">↓ Salvar</button>` : ''}
+        </div>
+      </div>
+    `;
+    photoGrid.appendChild(card);
+
+    // Compare drag
+    initCompare(i, card.querySelector('.compare-wrap'), card.querySelector('.img-after'), card.querySelector('.compare-handle'));
+  });
+}
+
+function statusLabel(s) {
+  return { waiting:'aguardando', processing:'processando…', done:'✓ pronto', error:'✗ erro' }[s] || s;
+}
+
+// ── COMPARE SLIDER ──
+function initCompare(i, wrap, imgAfter, handle) {
+  let dragging = false;
+
+  function setPos(x) {
+    const rect = wrap.getBoundingClientRect();
+    let pct    = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+    imgAfter.style.clipPath = `inset(0 ${(1 - pct) * 100}% 0 0)`;
+    handle.style.left       = (pct * 100) + '%';
+  }
+
+  wrap.addEventListener('mousedown', e => { dragging = true; setPos(e.clientX); });
+  wrap.addEventListener('touchstart', e => { dragging = true; setPos(e.touches[0].clientX); }, { passive: true });
+  window.addEventListener('mousemove', e => { if (dragging) setPos(e.clientX); });
+  window.addEventListener('touchmove', e => { if (dragging) setPos(e.touches[0].clientX); }, { passive: true });
+  window.addEventListener('mouseup',  () => dragging = false);
+  window.addEventListener('touchend', () => dragging = false);
+}
+
+// ── PROCESS ──
+processBtn.addEventListener('click', async () => {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey || !apiKey.startsWith('sk-')) {
+    showToast('⚠️ Insira uma chave OpenAI válida (sk-…)');
+    return;
+  }
+  if (!files.length) { showToast('Adicione fotos primeiro.'); return; }
+  if (isRunning)     { showToast('Já em processamento…');     return; }
+
+  isRunning = true;
+  processBtn.disabled = true;
+  progWrap.style.display  = 'block';
+  logWrap.style.display   = 'block';
+  dlAllWrap.style.display = 'none';
+
+  const stylePrompt = STYLE_PROMPTS[selStyle];
+  const intensity   = document.getElementById('ctrl-intensity').value;
+  const contrast    = document.getElementById('ctrl-contrast').value;
+  const warmth      = document.getElementById('ctrl-warmth').value;
+  const grain       = document.getElementById('ctrl-grain').value;
+
+  const fullPrompt = `${stylePrompt}
+Fine-tune parameters (0–100 scale): Intensity=${intensity}, Contrast=${contrast}, Color Warmth=${warmth}, Film Grain=${grain}.
+Version: ${VERSION}. Return ONLY the edited image, no text.`;
+
+  addLog(`[${VERSION}] Iniciando lote de ${files.length} foto(s) · Estilo: ${selStyle}`, 'gold');
+
+  let done = 0;
+  for (let i = 0; i < files.length; i++) {
+    results[i].status = 'processing';
+    updateCard(i);
+    progText.textContent = `${i} / ${files.length}`;
+    progBar.style.width  = (i / files.length * 100) + '%';
+
+    addLog(`→ Processando ${files[i].name}…`);
+
+    try {
+      const b64 = await fileToBase64(files[i]);
+      const edited = await callOpenAI(apiKey, b64, files[i].type, fullPrompt);
+      results[i].status = 'done';
+      results[i].url    = edited;
+      results[i].blob   = edited;
+      addLog(`✓ ${files[i].name} concluído`, 'green');
+      done++;
+    } catch (err) {
+      results[i].status = 'error';
+      addLog(`✗ ${files[i].name}: ${err.message}`, 'red');
+    }
+
+    updateCard(i);
+  }
+
+  progText.textContent = `${done} / ${files.length}`;
+  progBar.style.width  = '100%';
+
+  isRunning = false;
+  processBtn.disabled = false;
+  const allDone = results.every(r => r.status === 'done');
+  if (allDone || done > 0) dlAllWrap.style.display = 'flex';
+  addLog(`[${VERSION}] Concluído. ${done}/${files.length} foto(s) editadas com sucesso.`, 'gold');
+  showToast(done === files.length ? `✓ Todas as ${done} fotos processadas!` : `${done} de ${files.length} fotos concluídas.`);
+});
+
+// ── OPENAI CALL ──
+async function callOpenAI(apiKey, b64, mimeType, prompt) {
+  const resp = await fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey },
+    body: buildFormData(b64, mimeType, prompt)
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  // Returns base64 or URL
+  if (data.data?.[0]?.b64_json) {
+    return 'data:image/png;base64,' + data.data[0].b64_json;
+  }
+  if (data.data?.[0]?.url) {
+    return data.data[0].url;
+  }
+  throw new Error('Resposta inesperada da API');
+}
+
+function buildFormData(b64, mimeType, prompt) {
+  const fd   = new FormData();
+  const blob = b64ToBlob(b64, mimeType);
+  fd.append('image', blob, 'photo.png');
+  fd.append('prompt', prompt);
+  fd.append('model', 'gpt-image-1');
+  fd.append('n', '1');
+  fd.append('size', '1024x1024');
+  fd.append('response_format', 'b64_json');
+  return fd;
+}
+
+function b64ToBlob(b64, mime) {
+  const binary = atob(b64.split(',')[1] || b64);
+  const arr    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload  = () => res(r.result);
+    r.onerror = () => rej(new Error('Falha ao ler arquivo'));
+    r.readAsDataURL(file);
+  });
+}
+
+// ── UPDATE CARD ──
+function updateCard(i) {
+  const card = document.getElementById('card-' + i);
+  if (!card) return;
+
+  const r = results[i];
+  card.className = 'photo-card ' + r.status;
+
+  // status badge
+  const cs = document.getElementById('cs-' + i);
+  if (cs) { cs.className = 'card-status ' + r.status; cs.textContent = statusLabel(r.status); }
+
+  // update after image
+  const imgAfter = card.querySelector('.img-after');
+  if (imgAfter && r.url) imgAfter.src = r.url;
+
+  // add/remove overlay
+  let ov = card.querySelector('.card-overlay');
+  if (r.status === 'processing') {
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.className = 'card-overlay';
+      ov.innerHTML = `<div class="spinner"></div><span class="overlay-text">Editando com IA…</span>`;
+      card.querySelector('.compare-wrap').appendChild(ov);
+    }
+  } else {
+    if (ov) ov.remove();
+  }
+
+  // save button
+  const actions = card.querySelector('.card-actions');
+  if (actions && r.status === 'done') {
+    if (!actions.querySelector('.primary')) {
+      const btn = document.createElement('button');
+      btn.className = 'card-btn primary';
+      btn.textContent = '↓ Salvar';
+      btn.onclick = () => downloadOne(i);
+      actions.appendChild(btn);
+    }
+  }
+}
+
+// ── DOWNLOAD ──
+function downloadOne(i) {
+  const url  = results[i]?.url;
+  if (!url) return;
+  const name = files[i].name.replace(/\.[^.]+$/, '') + '_cineedit_' + VERSION + '.png';
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = name;
+  a.click();
+}
+
+document.getElementById('dl-all-btn').addEventListener('click', () => {
+  results.forEach((r, i) => { if (r.status === 'done') downloadOne(i); });
+});
+
+// ── LOG ──
+function addLog(msg, cls) {
+  const line = document.createElement('div');
+  line.className = 'log-line' + (cls ? ' ' + cls : '');
+  const ts   = new Date().toLocaleTimeString('pt-BR');
+  line.textContent = `[${ts}] ${msg}`;
+  logWrap.appendChild(line);
+  logWrap.scrollTop = logWrap.scrollHeight;
+}
+
+// ── TOAST ──
+let toastTimer;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+// ── SECURITY: prevent API key from leaking in console ──
+Object.defineProperty(window, '_apiKey', { get: () => undefined, set: () => {} });
+</script>
+</body>
+</html>
