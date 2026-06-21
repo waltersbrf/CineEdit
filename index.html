@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0011</title>
+  <title>CineEdit v1.0012</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -163,21 +163,6 @@
     #toast{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--gold-dim);color:var(--gold);padding:8px 14px;border-radius:6px;font-size:.73rem;font-family:'Space Mono',monospace;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none;z-index:999;max-width:280px}
     #toast.show{opacity:1;transform:translateY(0)}
 
-    /* ── STAMP OVERLAY in viewer ── */
-    #stamp-overlay{
-      position:absolute;
-      z-index:15;
-      pointer-events:none;
-      display:none; /* shown when checkbox checked + stampImg loaded */
-      /* positioning set by JS */
-    }
-    #stamp-overlay img{
-      display:block;
-      /* size set by JS */
-    }
-    /* invert filter for black mode */
-    #stamp-overlay.black img{ filter:invert(1); }
-
     /* ── STAMP ── */
     .stamp-drop{border:1.5px dashed var(--border);border-radius:6px;padding:12px 8px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
     .stamp-drop:hover,.stamp-drop.drag-over{border-color:var(--gold-dim);background:rgba(201,168,76,.03)}
@@ -215,7 +200,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0011</span>
+  <span class="vbadge">v1.0012</span>
 </header>
 
 <div id="api-banner">
@@ -284,22 +269,25 @@
     <div class="sb-sec">
       <div class="sb-title">Carimbo</div>
 
-      <div class="stamp-toggle">
-        <input type="checkbox" id="stamp-enabled">
-        <label for="stamp-enabled">Mostrar carimbo na foto</label>
-      </div>
-
       <!-- Upload always visible -->
-      <div class="stamp-drop" id="stamp-drop" style="margin-top:8px">
+      <div class="stamp-drop" id="stamp-drop">
         <p>Arraste ou <strong>clique</strong> para carregar o carimbo</p>
         <img id="stamp-preview" class="stamp-preview" alt="Preview carimbo">
         <button class="stamp-clear" id="stamp-clear" style="display:none" title="Remover">✕</button>
       </div>
       <input type="file" id="stamp-file-input" accept="image/*">
 
-      <div id="stamp-opts" style="display:none">
+      <!-- Options — shown after image is loaded -->
+      <div id="stamp-opts" style="display:none;margin-top:10px">
+
+        <!-- Show/hide toggle -->
+        <div class="stamp-toggle" style="margin-bottom:10px">
+          <input type="checkbox" id="stamp-enabled" checked>
+          <label for="stamp-enabled">Mostrar carimbo na foto</label>
+        </div>
+
         <!-- Color -->
-        <div class="color-row" style="margin-top:8px">
+        <div class="color-row">
           <label>Cor:</label>
           <label class="color-opt sel"><input type="radio" name="stamp-color" value="white" checked> Branco</label>
           <label class="color-opt"><input type="radio" name="stamp-color" value="black"> Preto</label>
@@ -311,8 +299,8 @@
           <div class="sl-item"><label>Opacidade <span id="v-stamp-opacity">90</span>%</label><input type="range" id="a-stamp-opacity" min="10" max="100" value="90"></div>
         </div>
 
-        <!-- Position grid 3x3 + centro -->
-        <div class="sb-title" style="margin-top:10px">Posição</div>
+        <!-- Position grid -->
+        <div class="sb-title" style="margin-top:12px">Posição</div>
         <div class="pos-grid">
           <button class="pos-btn" data-pos="top-left">↖ Cima<br>Esq</button>
           <button class="pos-btn" data-pos="top-center">↑ Cima<br>Meio</button>
@@ -399,8 +387,8 @@
         <div class="vload-steps" id="vload-steps"></div>
       </div>
 
-      <!-- STAMP OVERLAY (live preview) -->
-      <div id="stamp-overlay"><img id="stamp-overlay-img" src="" alt="carimbo"></div>
+      <!-- STAMP CANVAS OVERLAY (live preview, covers entire viewer) -->
+      <canvas id="stamp-canvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:15;display:none;"></canvas>
     </div>
 
     <div id="log"></div>
@@ -414,7 +402,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0011';
+const VERSION = 'v1.0012';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -709,8 +697,8 @@ function refreshViewer(){
 
   dlWrap.style.display=hasEdit?'':'none';
 
-  // Reposition stamp overlay
-  updateStampOverlay();
+  // Redraw stamp canvas
+  redrawStamp();
 }
 
 // ── SLIDER DRAG ────────────────────────────────────────────
@@ -1190,87 +1178,93 @@ let stampPos   = 'bot-center';
 let stampSize  = 25;
 let stampOpa   = 90;
 
-const stampOverlay    = g('stamp-overlay');
-const stampOverlayImg = g('stamp-overlay-img');
+const stampCanvas = g('stamp-canvas');
+const stampCtx    = stampCanvas.getContext('2d');
 
-// Helper: position stamp overlay relative to #viewer
-function updateStampOverlay(){
-  const enabled = g('stamp-enabled').checked;
+// Redraw stamp canvas over the viewer at correct pixel position
+function redrawStamp(){
+  const enabled = g('stamp-enabled') ? g('stamp-enabled').checked : false;
   if(!enabled || !stampImg){
-    stampOverlay.style.display = 'none';
+    stampCanvas.style.display = 'none';
     return;
   }
 
   const viewer = g('viewer');
-  const vw = viewer.offsetWidth;
-  const vh = viewer.offsetHeight;
+  const vw = viewer.clientWidth;
+  const vh = viewer.clientHeight;
 
-  // Stamp width = % of viewer width
+  // Size the canvas to exactly match viewer pixels
+  if(stampCanvas.width !== vw || stampCanvas.height !== vh){
+    stampCanvas.width  = vw;
+    stampCanvas.height = vh;
+  }
+  stampCtx.clearRect(0, 0, vw, vh);
+
+  // Stamp dimensions
   const sw = Math.round(vw * stampSize / 100);
   const sh = Math.round(sw * (stampImg.naturalHeight / stampImg.naturalWidth));
+  const margin = Math.round(Math.min(vw, vh) * 0.03);
 
-  const margin = Math.round(Math.min(vw, vh) * .03);
-  const pos = stampPos;
+  // X
+  let x;
+  if(stampPos.includes('left'))       x = margin;
+  else if(stampPos.includes('right')) x = vw - sw - margin;
+  else                                x = Math.round((vw - sw) / 2);
 
-  // X position
-  let left;
-  if(pos.includes('left'))       left = margin;
-  else if(pos.includes('right')) left = vw - sw - margin;
-  else                           left = Math.round((vw - sw) / 2);
+  // Y
+  let y;
+  if(stampPos.includes('top'))                              y = margin;
+  else if(stampPos === 'center' || stampPos.includes('mid'))y = Math.round((vh - sh) / 2);
+  else                                                      y = vh - sh - margin;
 
-  // Y position
-  let top;
-  if(pos.includes('top'))                          top = margin;
-  else if(pos === 'center' || pos.includes('mid')) top = Math.round((vh - sh) / 2);
-  else                                             top = vh - sh - margin;
+  // Draw to off-screen canvas first for color manipulation
+  const tmp = document.createElement('canvas');
+  tmp.width  = sw;
+  tmp.height = sh;
+  const tc = tmp.getContext('2d');
+  tc.drawImage(stampImg, 0, 0, sw, sh);
 
-  // Set individual properties — never use cssText (it resets position)
-  stampOverlay.style.position   = 'absolute';
-  stampOverlay.style.left       = left + 'px';
-  stampOverlay.style.top        = top  + 'px';
-  stampOverlay.style.width      = sw   + 'px';
-  stampOverlay.style.height     = sh   + 'px';
-  stampOverlay.style.zIndex     = '15';
-  stampOverlay.style.pointerEvents = 'none';
-  stampOverlay.style.opacity    = String(stampOpa / 100);
-  stampOverlay.style.display    = 'block';
-
-  stampOverlayImg.style.width       = sw + 'px';
-  stampOverlayImg.style.height      = sh + 'px';
-  stampOverlayImg.style.objectFit   = 'contain';
-  stampOverlayImg.style.display     = 'block';
-
-  // Color: CSS filter for black inversion (keep white transparent bg via mix-blend-mode)
   if(stampColor === 'black'){
-    stampOverlay.className = 'black';
-    // multiply blend makes white areas transparent on dark bg, keeps black text
-    stampOverlay.style.mixBlendMode = 'multiply';
-  } else {
-    stampOverlay.className = '';
-    // screen blend makes black areas transparent on light bg, keeps white
-    stampOverlay.style.mixBlendMode = 'screen';
+    // Invert white→black via pixel manipulation
+    const id = tc.getImageData(0, 0, sw, sh);
+    const d  = id.data;
+    for(let i = 0; i < d.length; i += 4){
+      d[i]   = 255 - d[i];
+      d[i+1] = 255 - d[i+1];
+      d[i+2] = 255 - d[i+2];
+      // preserve alpha
+    }
+    tc.putImageData(id, 0, 0);
   }
 
-  stampOverlayImg.src = stampImg.src;
+  stampCtx.globalAlpha = stampOpa / 100;
+  stampCtx.drawImage(tmp, x, y, sw, sh);
+  stampCtx.globalAlpha = 1;
+
+  stampCanvas.style.display = 'block';
 }
 
-// Recalculate on resize
-window.addEventListener('resize', updateStampOverlay);
+// Redraw on resize
+const stampResizeObs = new ResizeObserver(() => redrawStamp());
+stampResizeObs.observe(g('viewer'));
 
-// Checkbox toggles overlay visibility AND shows/hides stamp-opts
-g('stamp-enabled').addEventListener('change', function(){
-  g('stamp-opts').style.display = (this.checked && stampImg) ? '' : 'none';
-  updateStampOverlay();
-});
+// Checkbox
+g('stamp-enabled').addEventListener('change', redrawStamp);
 
-// Stamp file drop/click
+// File input
 const stampDrop   = g('stamp-drop');
 const stampFileIn = g('stamp-file-input');
 stampDrop.addEventListener('click', e => { if(e.target !== g('stamp-clear')) stampFileIn.click(); });
-stampDrop.addEventListener('dragover', e => { e.preventDefault(); stampDrop.classList.add('drag-over'); });
-stampDrop.addEventListener('dragleave', () => stampDrop.classList.remove('drag-over'));
-stampDrop.addEventListener('drop', e => { e.preventDefault(); stampDrop.classList.remove('drag-over'); loadStampFile(e.dataTransfer.files[0]); });
-stampFileIn.addEventListener('change', e => { if(e.target.files[0]) loadStampFile(e.target.files[0]); e.target.value=''; });
+stampDrop.addEventListener('dragover',  e => { e.preventDefault(); stampDrop.classList.add('drag-over'); });
+stampDrop.addEventListener('dragleave', ()=> stampDrop.classList.remove('drag-over'));
+stampDrop.addEventListener('drop', e => {
+  e.preventDefault(); stampDrop.classList.remove('drag-over');
+  loadStampFile(e.dataTransfer.files[0]);
+});
+stampFileIn.addEventListener('change', e => {
+  if(e.target.files[0]) loadStampFile(e.target.files[0]);
+  e.target.value = '';
+});
 
 g('stamp-clear').addEventListener('click', e => {
   e.stopPropagation();
@@ -1280,7 +1274,8 @@ g('stamp-clear').addEventListener('click', e => {
   g('stamp-clear').style.display = 'none';
   stampDrop.querySelector('p').style.display = '';
   g('stamp-opts').style.display = 'none';
-  stampOverlay.style.display = 'none';
+  stampCanvas.style.display = 'none';
+  stampCtx.clearRect(0, 0, stampCanvas.width, stampCanvas.height);
 });
 
 function loadStampFile(file){
@@ -1289,17 +1284,17 @@ function loadStampFile(file){
   const img = new Image();
   img.onload = () => {
     stampImg = img;
-    // sidebar preview
+    // Show sidebar preview
     const prev = g('stamp-preview');
     prev.src = url;
     prev.style.display = 'block';
-    prev.className = 'stamp-preview' + (stampColor==='white' ? ' white-bg' : '');
+    prev.className = 'stamp-preview' + (stampColor === 'white' ? ' white-bg' : '');
     g('stamp-clear').style.display = '';
     stampDrop.querySelector('p').style.display = 'none';
-    // Show options panel if checkbox is on
-    if(g('stamp-enabled').checked) g('stamp-opts').style.display = '';
-    // Update overlay
-    updateStampOverlay();
+    // Show all controls
+    g('stamp-opts').style.display = '';
+    // Draw on viewer
+    redrawStamp();
   };
   img.src = url;
 }
@@ -1311,8 +1306,8 @@ document.querySelectorAll('[name="stamp-color"]').forEach(r => {
     document.querySelectorAll('.color-opt').forEach(l => l.classList.remove('sel'));
     r.closest('.color-opt').classList.add('sel');
     const prev = g('stamp-preview');
-    if(prev.src) prev.className = 'stamp-preview' + (stampColor==='white' ? ' white-bg' : '');
-    updateStampOverlay(); // updates blend mode + class
+    if(prev.src) prev.className = 'stamp-preview' + (stampColor === 'white' ? ' white-bg' : '');
+    redrawStamp();
   });
 });
 
@@ -1322,7 +1317,7 @@ document.querySelectorAll('.pos-btn').forEach(b => {
     document.querySelectorAll('.pos-btn').forEach(x => x.classList.remove('on'));
     b.classList.add('on');
     stampPos = b.dataset.pos;
-    updateStampOverlay();
+    redrawStamp();
   });
 });
 
@@ -1330,40 +1325,39 @@ document.querySelectorAll('.pos-btn').forEach(b => {
 g('a-stamp-size').addEventListener('input', function(){
   stampSize = +this.value;
   g('v-stamp-size').textContent = this.value;
-  updateStampOverlay();
+  redrawStamp();
 });
 g('a-stamp-opacity').addEventListener('input', function(){
   stampOpa = +this.value;
   g('v-stamp-opacity').textContent = this.value;
-  updateStampOverlay();
+  redrawStamp();
 });
 
-// drawStamp for canvas export (unchanged)
+// Draw stamp onto export canvas
 function drawStamp(ctx, cw, ch){
   if(!stampImg || !g('stamp-enabled').checked) return;
   const sw = Math.round(cw * stampSize / 100);
-  const sh = Math.round(sw * stampImg.naturalHeight / stampImg.naturalWidth);
-  const tmp = document.createElement('canvas');
-  tmp.width = stampImg.naturalWidth; tmp.height = stampImg.naturalHeight;
-  const tc = tmp.getContext('2d');
-  tc.drawImage(stampImg, 0, 0);
-  if(stampColor === 'black'){
-    tc.globalCompositeOperation = 'difference';
-    tc.fillStyle = 'white';
-    tc.fillRect(0, 0, tmp.width, tmp.height);
-    tc.globalCompositeOperation = 'source-over';
-  }
-  const margin = Math.round(cw * .03);
+  const sh = Math.round(sw * (stampImg.naturalHeight / stampImg.naturalWidth));
+  const margin = Math.round(Math.min(cw, ch) * 0.03);
   let x, y;
-  const pos = stampPos;
-  if(pos.includes('left'))       x = margin;
-  else if(pos.includes('right')) x = cw - sw - margin;
-  else                           x = Math.round((cw - sw) / 2);
-  if(pos.includes('top'))        y = margin;
-  else if(pos==='center'||pos.includes('mid')) y = Math.round((ch - sh) / 2);
-  else                           y = ch - sh - margin;
+  if(stampPos.includes('left'))       x = margin;
+  else if(stampPos.includes('right')) x = cw - sw - margin;
+  else                                x = Math.round((cw - sw) / 2);
+  if(stampPos.includes('top'))                               y = margin;
+  else if(stampPos === 'center' || stampPos.includes('mid')) y = Math.round((ch - sh) / 2);
+  else                                                       y = ch - sh - margin;
+
+  const tmp = document.createElement('canvas');
+  tmp.width = sw; tmp.height = sh;
+  const tc = tmp.getContext('2d');
+  tc.drawImage(stampImg, 0, 0, sw, sh);
+  if(stampColor === 'black'){
+    const id = tc.getImageData(0, 0, sw, sh), d = id.data;
+    for(let i = 0; i < d.length; i += 4){ d[i]=255-d[i]; d[i+1]=255-d[i+1]; d[i+2]=255-d[i+2]; }
+    tc.putImageData(id, 0, 0);
+  }
   ctx.globalAlpha = stampOpa / 100;
-  ctx.drawImage(tmp, x, y, sw, sh);
+  ctx.drawImage(tmp, x, y);
   ctx.globalAlpha = 1;
 }
 
