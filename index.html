@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0007</title>
+  <title>CineEdit v1.0008</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -175,7 +175,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0007</span>
+  <span class="vbadge">v1.0008</span>
 </header>
 
 <div id="api-banner">
@@ -210,15 +210,11 @@
     </div>
 
     <div class="sb-sec">
-      <div class="sb-title">1 · Processamento Local</div>
-      <p class="info-note">LUT aplicado <b>diretamente nos pixels</b> — instantâneo, preserva pessoas e composição.</p>
-      <button class="btn-gold" id="local-btn" disabled>⚡ Aplicar Estilo Local</button>
-    </div>
-
-    <div class="sb-sec" id="enhance-sec" style="display:none">
-      <div class="sb-title" style="color:var(--gold)">2 · Enhance com IA <small style="color:var(--muted);font-size:.5rem;letter-spacing:0">(opcional)</small></div>
-      <p class="info-note">GPT-4o analisa o <b>original</b> e gera parâmetros cinematográficos precisos — aplicados diretamente sobre a foto sem processamento local prévio.</p>
+      <div class="sb-title">Processar</div>
+      <p class="info-note" style="margin-bottom:8px">Escolha como aplicar o estilo — ambas opções partem do <b>original</b>.</p>
+      <button class="btn-gold" id="local-btn" disabled style="margin-bottom:6px">⚡ Aplicar Local (instantâneo)</button>
       <button class="btn-outline" id="ai-btn" disabled>✦ Refinar com GPT-4o</button>
+      <button class="btn-ghost" id="revert-btn" style="display:none;margin-top:8px;border-color:rgba(192,57,43,.4);color:var(--danger)">↩ Voltar ao Original</button>
     </div>
 
     <div id="prog-wrap">
@@ -241,7 +237,7 @@
         <div class="sl-item"><label>Vinheta <span id="v-vig">0</span></label><input type="range" id="a-vig" min="0" max="100" value="0"></div>
         <div class="sl-item"><label>Grain <span id="v-grn">0</span></label><input type="range" id="a-grn" min="0" max="100" value="0"></div>
       </div>
-      <button class="btn-ghost" id="reset-btn">↺ Resetar ajustes</button>
+      <button class="btn-ghost" id="reset-btn">↺ Resetar sliders de ajuste</button>
     </div>
 
     <div id="dl-wrap" style="display:none;padding:12px 15px;border-top:1px solid var(--border)">
@@ -328,7 +324,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0007';
+const VERSION = 'v1.0008';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -342,54 +338,53 @@ let adj = {exp:0,con:0,sat:0,tmp:0,vig:0,grn:0};
 let selStyle = 'golden';
 
 // ── LUTs ───────────────────────────────────────────────────
-// Curves: 8 octave breakpoints from shadows(0) to highlights(1)
-// Values = per-channel delta added (in 0-1 space) at that luminosity band
-// sunDir: {x,y} = normalized direction of simulated sun (0-1 canvas space)
-// sunIntensity: strength of directional light gradient overlay
+// Target for Golden Hour: light warm orange glow top-left, deep natural shadows,
+// rich greens slightly yellowed, asphalt warm bronze, skin tones golden not orange.
+// Reference: the edited running photo — subtle, cinematic, NOT a heavy filter.
 const LUTS = {
   golden:{
-    // R: big boost in shadows/mids (orange skin), hold highlights
-    rCurve:[.02,.08,.16,.20,.18,.14,.08,.03],
-    // G: mild boost mids-highlights (golden foliage)
-    gCurve:[-.01,.02,.06,.08,.07,.05,.03,.01],
-    // B: strong pull in shadows (cool shadow), fall off in highlights
-    bCurve:[-.06,-.10,-.12,-.10,-.07,-.04,-.02,0],
-    satBoost:.42,       // strong color pop
-    lift:4,             // slight shadow lift (not too milky)
-    crush:18,           // crush blacks toward 0 (deep shadows)
-    contrast:1.28,      // punchy S-curve
-    warmTint:.18,       // orange cast overlay strength
-    vigAmt:.30,         // strong vignette
-    // Directional sun simulation
-    sunDir:{x:.15,y:.05}, // top-left
-    sunIntensity:.38,
-    sunColor:[255,190,80], // warm golden
-    shadowColor:[20,15,40] // deep cool purple-black
+    // R: moderate boost in mids/shadows (warm skin), gentle in highlights
+    rCurve:[.01,.05,.10,.12,.10,.07,.04,.01],
+    // G: slight boost to keep foliage golden (not washed out)
+    gCurve:[0,.01,.03,.04,.04,.03,.01,0],
+    // B: pull down across the board, stronger in shadows (cool shadow)
+    bCurve:[-.03,-.06,-.08,-.07,-.05,-.03,-.01,0],
+    satBoost:.18,       // subtle — let colors breathe
+    lift:3,             // very slight shadow lift
+    crush:10,           // gentle black deepening
+    contrast:1.18,      // moderate S-curve
+    warmTint:.07,       // MUCH less than before — just a hint of gold
+    vigAmt:.20,
+    // Sun: top-left, gentle glow, not overwhelming
+    sunDir:{x:.12,y:.08},
+    sunIntensity:.18,   // was .38 — now much more subtle
+    sunColor:[255,200,120],
+    shadowColor:[15,10,30]
   },
   noir:{
     rCurve:[0,0,.01,.01,0,0,0,0],
     gCurve:[0,0,.01,.01,0,0,0,0],
-    bCurve:[.05,.04,.03,.02,.01,0,0,0],
+    bCurve:[.04,.03,.02,.01,0,0,0,0],
     satBoost:-.70, lift:0, crush:30, contrast:1.50,
-    warmTint:-.06, vigAmt:.45,
-    sunDir:{x:.5,y:.0}, sunIntensity:.15,
+    warmTint:-.05, vigAmt:.45,
+    sunDir:{x:.5,y:.0}, sunIntensity:.10,
     sunColor:[200,220,255], shadowColor:[0,0,0]
   },
   teal:{
-    rCurve:[-.02,.02,.06,.09,.10,.09,.07,.04],
-    gCurve:[-.03,0,.02,.03,.03,.02,.01,0],
-    bCurve:[.12,.09,.06,.03,.01,-.01,-.02,-.01],
-    satBoost:.22, lift:5, crush:12, contrast:1.18,
-    warmTint:.04, vigAmt:.18,
-    sunDir:{x:.8,y:.1}, sunIntensity:.18,
-    sunColor:[255,160,80], shadowColor:[0,40,60]
+    rCurve:[-.01,.02,.05,.08,.09,.08,.06,.03],
+    gCurve:[-.02,0,.02,.03,.03,.02,.01,0],
+    bCurve:[.08,.07,.05,.02,.01,-.01,-.02,-.01],
+    satBoost:.18, lift:4, crush:10, contrast:1.12,
+    warmTint:.03, vigAmt:.16,
+    sunDir:{x:.85,y:.1}, sunIntensity:.14,
+    sunColor:[255,150,60], shadowColor:[0,35,55]
   },
   desat:{
     rCurve:[0,0,0,0,0,0,0,0],
     gCurve:[0,0,0,0,0,0,0,0],
-    bCurve:[.02,.02,.01,0,0,0,0,0],
-    satBoost:-.45, lift:22, crush:0, contrast:.88,
-    warmTint:-.03, vigAmt:.10,
+    bCurve:[.02,.01,.01,0,0,0,0,0],
+    satBoost:-.42, lift:20, crush:0, contrast:.90,
+    warmTint:-.02, vigAmt:.08,
     sunDir:{x:.5,y:.5}, sunIntensity:0,
     sunColor:[255,255,255], shadowColor:[0,0,0]
   }
@@ -407,7 +402,7 @@ function sCurve(v,s){
 // ── ELEMENT REFS ───────────────────────────────────────────
 const localBtn   = g('local-btn');
 const aiBtn      = g('ai-btn');
-const enhanceSec = g('enhance-sec');
+const revertBtn  = g('revert-btn');
 const adjPanel   = g('adj-panel');
 const dlWrap     = g('dl-wrap');
 const progWrap   = g('prog-wrap');
@@ -498,16 +493,20 @@ function handleFiles(raw){
   }));
 
   buildThumbs();
+
+  // Both processing options available immediately
   localBtn.disabled=false;
-  aiBtn.disabled=true;
-  enhanceSec.style.display='none';
+  aiBtn.disabled=false;
+
+  // Hide post-process panels until first result
   adjPanel.style.display='none';
   dlWrap.style.display='none';
+  g('revert-btn').style.display='none';
   progWrap.style.display='none';
   logEl.style.display='none';
   logEl.innerHTML='';
 
-  addLog(`[${VERSION}] ${imgs.length} foto(s) carregada(s).`,'g');
+  addLog(`[${VERSION}] ${imgs.length} foto(s) carregada(s). Pronto para processar.`,'g');
   selectPhoto(0);
 }
 
@@ -661,6 +660,30 @@ g('reset-btn').addEventListener('click',()=>{
   applyAdjFilter();
 });
 
+// ── REVERT TO ORIGINAL ─────────────────────────────────────
+g('revert-btn').addEventListener('click',()=>{
+  if(activeIdx<0||!files.length) return;
+  // Revert ALL photos
+  results.forEach((r,i)=>{
+    r.localUrl=null; r.aiUrl=null; r.status='waiting'; r.layer='orig';
+    setDot(i,'wait');
+    setThumbSrc(i, r.origUrl);
+  });
+  // Reset sliders
+  adj={exp:0,con:0,sat:0,tmp:0,vig:0,grn:0};
+  Object.keys(adj).forEach(k=>{
+    const el=g('a-'+k),vl=g('v-'+k);
+    if(el)el.value=0; if(vl)vl.textContent=0;
+  });
+  adjPanel.style.display='none';
+  dlWrap.style.display='none';
+  revertBtn.style.display='none';
+  refreshViewer();
+  applyAdjFilter();
+  addLog(`[${VERSION}] Revertido ao original.`,'g');
+  showToast('↩ Fotos revertidas ao original.');
+});
+
 function adjFilter(){
   const br=1+adj.exp/100, ct=1+adj.con/100, st=1+adj.sat/100;
   const sp=adj.tmp>0?(adj.tmp/100)*.4:0;
@@ -758,8 +781,8 @@ localBtn.addEventListener('click',async()=>{
 
   progCnt.textContent=`${done}/${files.length}`;
   progFill.style.width='100%';
-  running=false; localBtn.disabled=false;
-  if(done>0){adjPanel.style.display=''; enhanceSec.style.display=''; aiBtn.disabled=false; dlWrap.style.display='';}
+  running=false; localBtn.disabled=false; aiBtn.disabled=false;
+  if(done>0){ adjPanel.style.display=''; dlWrap.style.display=''; revertBtn.style.display=''; }
   addLog(`[${VERSION}] Local: ${done}/${files.length} concluídas.`,'g');
   showToast(done===files.length?`✓ ${done} fotos processadas!`:`${done}/${files.length} concluídas.`);
   setTimeout(()=>progWrap.style.display='none',2000);
@@ -935,6 +958,7 @@ aiBtn.addEventListener('click',async()=>{
   progCnt.textContent=`${done}/${files.length}`;
   progFill.style.width='100%';
   running=false; aiBtn.disabled=false; localBtn.disabled=false;
+  if(done>0){ adjPanel.style.display=''; dlWrap.style.display=''; revertBtn.style.display=''; }
   addLog(`[${VERSION}] AI Enhance: ${done}/${files.length} concluídas.`,'g');
   showToast(`✓ AI Enhance: ${done}/${files.length} refinadas!`);
   setTimeout(()=>progWrap.style.display='none',2000);
