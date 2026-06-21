@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0014</title>
+  <title>CineEdit v1.0015-golden-ref</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -402,7 +402,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0014';
+const VERSION = 'v1.0015-golden-ref';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -421,23 +421,21 @@ let selStyle = 'golden';
 // Reference: the edited running photo — subtle, cinematic, NOT a heavy filter.
 const LUTS = {
   golden:{
-    // R: moderate boost in mids/shadows (warm skin), gentle in highlights
-    rCurve:[.01,.05,.10,.12,.10,.07,.04,.01],
-    // G: slight boost to keep foliage golden (not washed out)
-    gCurve:[0,.01,.03,.04,.04,.03,.01,0],
-    // B: pull down across the board, stronger in shadows (cool shadow)
-    bCurve:[-.03,-.06,-.08,-.07,-.05,-.03,-.01,0],
-    satBoost:.18,       // subtle — let colors breathe
-    lift:3,             // very slight shadow lift
-    crush:10,           // gentle black deepening
-    contrast:1.18,      // moderate S-curve
-    warmTint:.07,       // MUCH less than before — just a hint of gold
-    vigAmt:.20,
-    // Sun: top-left, gentle glow, not overwhelming
-    sunDir:{x:.12,y:.08},
-    sunIntensity:.18,   // was .38 — now much more subtle
-    sunColor:[255,200,120],
-    shadowColor:[15,10,30]
+    // Preset calibrado para a referência enviada: golden hour realista, com
+    // sol visível no canto superior esquerdo, sombras mais densas e pele quente natural.
+    rCurve:[.00,.035,.075,.105,.105,.075,.045,.015],
+    gCurve:[-.005,.008,.028,.045,.050,.040,.020,.005],
+    bCurve:[-.065,-.095,-.115,-.095,-.070,-.045,-.020,-.005],
+    satBoost:.14,
+    lift:0,
+    crush:18,
+    contrast:1.27,
+    warmTint:.105,
+    vigAmt:.27,
+    sunDir:{x:.035,y:.045},
+    sunIntensity:.34,
+    sunColor:[255,190,82],
+    shadowColor:[18,13,24]
   },
   noir:{
     rCurve:[0,0,.01,.01,0,0,0,0],
@@ -1053,7 +1051,7 @@ aiBtn.addEventListener('click',async()=>{
 
 // ── PROMPTS: focused on atmosphere/lighting, not subject identity ──
 const LIGHTING_PROMPTS = {
-  golden: `Transform the lighting and color grade of this outdoor sports photo into a golden hour cinematic style. Apply: warm amber-golden light from upper-left, rich green foliage turning golden-olive, warm asphalt with soft golden reflections, subtle vignette, natural depth. Style: professional sports editorial photography, Lightroom golden hour preset. Focus only on light, color, and atmosphere — these will be used as a color reference layer only.`,
+  golden: `Use the original photo only as a color-light reference. Produce a realistic Lightroom-style golden hour sports photo: warm low sun from the upper-left corner, amber highlights on road and foliage, darker but detailed shadows, natural skin warmth, green foliage shifted subtly toward golden-olive. Do not change subject identity, body, pose, framing, clothing, road, background structure, or camera perspective. Avoid cartoon, CGI, beauty retouching, excessive orange filter, heavy glow, or unrealistic lighting. The result must look like a real RAW photo edited by a sports photographer.`,
   noir:   `Transform the lighting and color of this photo into a dramatic noir style: high contrast, near-monochrome with cool blue-silver tones, deep blacks, bright specular highlights, moody atmosphere. Color reference layer only.`,
   teal:   `Apply a Teal & Orange cinematic color grade to this photo: warm orange skin tones, teal/cyan in shadows and environment, high contrast split-toning, blockbuster cinema look. Color reference layer only.`,
   desat:  `Apply a modern desaturated matte look to this photo: muted colors, lifted blacks, subtle cool-gray shadows, premium drama series aesthetic. Color reference layer only.`
@@ -1121,8 +1119,8 @@ async function blendLightingRef(origUrl, aiRefUrl){
 
   // Blend strength: how much color/light from AI to mix in (0=original, 1=full AI color)
   // We keep 100% of original luminance and blend in AI chroma + mild luma shift
-  const COLOR_STRENGTH = 0.72; // how much of AI color to take
-  const LUMA_SHIFT     = 0.28; // how much AI brightness affects result
+  const COLOR_STRENGTH = 0.38; // reduzido para preservar o original e evitar cor artificial
+  const LUMA_SHIFT     = 0.12; // a luminosidade do original continua dominante
 
   for(let px = 0; px < W * H; px++){
     const k = px * 4;
@@ -1138,8 +1136,8 @@ async function blendLightingRef(origUrl, aiRefUrl){
 
     // Compose: original lightness (dominant) + AI hue/saturation + mild luma influence
     const blendedL = ol * (1 - LUMA_SHIFT) + al * LUMA_SHIFT;
-    const blendedH = ah; // full AI hue (this drives the warm/cool look)
-    const blendedS = os * (1 - COLOR_STRENGTH) + as2 * COLOR_STRENGTH;
+    const blendedH = mixHue(oh, ah, COLOR_STRENGTH * 0.55); // nunca assumir 100% do hue da IA
+    const blendedS = os * (1 - COLOR_STRENGTH) + Math.min(as2, os + 0.18) * COLOR_STRENGTH;
 
     const [nr, ng, nb] = hslToRgb(blendedH, blendedS, blendedL);
 
@@ -1172,6 +1170,13 @@ function rgbToHsl(r, g, b){
     }
   }
   return [h, s, l];
+}
+function mixHue(h1, h2, t){
+  // interpolação circular de hue para evitar saltos agressivos de cor
+  let d = h2 - h1;
+  if(d > 0.5) d -= 1;
+  if(d < -0.5) d += 1;
+  return (h1 + d * t + 1) % 1;
 }
 function hslToRgb(h, s, l){
   if(s===0) return [l*255, l*255, l*255];
