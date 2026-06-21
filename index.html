@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0013</title>
+  <title>CineEdit v1.0014</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -200,7 +200,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0013</span>
+  <span class="vbadge">v1.0014</span>
 </header>
 
 <div id="api-banner">
@@ -238,7 +238,7 @@
       <div class="sb-title">Processar</div>
       <p class="info-note" style="margin-bottom:8px">Escolha como aplicar o estilo — ambas opções partem do <b>original</b>.</p>
       <button class="btn-gold" id="local-btn" disabled style="margin-bottom:6px">⚡ Aplicar Local (instantâneo)</button>
-      <button class="btn-outline" id="ai-btn" disabled>✦ Editar com gpt-image-1</button>
+      <button class="btn-outline" id="ai-btn" disabled>✦ Blend IA + Original</button>
       <button class="btn-ghost" id="revert-btn" style="display:none;margin-top:8px;border-color:rgba(192,57,43,.4);color:var(--danger)">↩ Voltar ao Original</button>
     </div>
 
@@ -402,7 +402,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0013';
+const VERSION = 'v1.0014';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -988,15 +988,16 @@ aiBtn.addEventListener('click',async()=>{
 
   running=true; aiBtn.disabled=true; localBtn.disabled=true;
   progWrap.style.display=''; logEl.style.display='';
-  progLbl.textContent='Editando com gpt-image-1…';
-  addLog(`[${VERSION}] Iniciando edição de imagem via gpt-image-1…`,'g');
+  progLbl.textContent='Blend IA + Original…';
+  addLog(`[${VERSION}] Iniciando pipeline blend: gpt-image-1 → Canvas…`,'g');
 
   const STEPS=[
     'Preparando imagem original',
-    'Enviando para gpt-image-1',
-    'IA processando edição…',
-    'Recebendo resultado',
-    'Finalizando'
+    'gpt-image-1 gerando referência de luz/cor',
+    'IA processando…',
+    'Recebendo referência de iluminação',
+    'Blend Canvas: preservando pessoa do original',
+    'Finalizando resultado'
   ];
 
   let done=0;
@@ -1009,20 +1010,30 @@ aiBtn.addEventListener('click',async()=>{
     progCnt.textContent=`${i+1}/${files.length}`;
     progFill.style.width=(i/files.length*100)+'%';
     progStep.textContent=files[i].name;
-    addLog(`→ Editando: ${files[i].name}…`);
+    addLog(`→ ${files[i].name}…`);
 
     try{
-      setStep(0,false); setRing(10, files[i].name);
-      const blob = await fetch(results[i].origUrl).then(r=>r.blob());
+      // Step 0: prepare original blob
+      setStep(0,false); setRing(8, files[i].name);
+      const origBlob = await fetch(results[i].origUrl).then(r=>r.blob());
+      const pngBlob  = await convertToPng(origBlob, files[i].type);
 
-      setStep(1,false); setRing(20, files[i].name);
-      const aiUrl = await editWithGptImage1(key, blob, files[i].type, selStyle, i);
+      // Step 1-3: gpt-image-1 generates a lighting/color reference (identity may change — that's OK)
+      setStep(1,false); setRing(18, files[i].name);
+      const aiRefUrl = await getAiLightingRef(key, pngBlob, selStyle, i);
+      setStep(3,true);  setRing(72, files[i].name);
+      addLog(`  Referência de luz recebida. Iniciando blend…`);
 
-      setStep(4,true); setRing(100, files[i].name);
-      results[i].aiUrl=aiUrl; results[i].layer='ai'; results[i].status='ai';
-      setDot(i,'ai'); setThumbSrc(i,aiUrl);
+      // Step 4: Canvas blend — take COLOR from AI ref, take LUMINANCE from original
+      setStep(4,false); setRing(85, files[i].name);
+      const blendUrl = await blendLightingRef(results[i].origUrl, aiRefUrl);
+
+      setStep(5,true); setRing(100, files[i].name);
+      results[i].aiUrl=blendUrl; results[i].layer='ai'; results[i].status='ai';
+      setDot(i,'ai'); setThumbSrc(i,blendUrl);
       if(activeIdx===i){vload.classList.remove('show');refreshViewer();}
-      addLog(`✓ ${files[i].name}`,'ok'); done++;
+      addLog(`✓ ${files[i].name} — blend concluído`,'ok'); done++;
+
     }catch(e){
       results[i].status = results[i].localUrl ? 'local' : 'error';
       setDot(i, results[i].localUrl ? 'local' : 'err');
@@ -1035,35 +1046,30 @@ aiBtn.addEventListener('click',async()=>{
   progFill.style.width='100%';
   running=false; aiBtn.disabled=false; localBtn.disabled=false;
   if(done>0){ adjPanel.style.display=''; dlWrap.style.display=''; revertBtn.style.display=''; }
-  addLog(`[${VERSION}] gpt-image-1: ${done}/${files.length} editadas.`,'g');
-  showToast(`✓ ${done}/${files.length} fotos editadas pela IA!`);
+  addLog(`[${VERSION}] Blend concluído: ${done}/${files.length}.`,'g');
+  showToast(`✓ ${done}/${files.length} fotos processadas!`);
   setTimeout(()=>progWrap.style.display='none',2500);
 });
 
-// ── PROMPTS POR ESTILO ──────────────────────────────────────
-const IMAGE_EDIT_PROMPTS = {
-  golden:`Apply professional photo editing to this image. CRITICAL: preserve 100% of the subject's identity — same face, body proportions, clothing, pose, and scene composition. Do NOT recreate or reimagine the scene. Apply only realistic Lightroom-style post-processing: subtle warm white balance shift simulating late afternoon golden hour (not dominant or orange), moderate S-curve contrast for natural depth, gentle shadow recovery without drama, slight global saturation lift for vibrant natural look, keep skin texture real and healthy without plastic effect. No lens flare, no glow, no new lighting simulation, no Instagram filter, no HDR. Result must look like a real sports photograph taken with a professional camera and lightly edited by a sports photographer. Natural, clean, balanced, realistic.`,
-  noir:`Apply professional photo editing to this image. CRITICAL: preserve 100% of the subject's identity — same face, body, pose and composition. Apply only: strong contrast boost, desaturate to near-monochrome with a slight cool blue-silver tone, deep blacks, bright directional highlights, moody atmosphere. No content changes, no new elements.`,
-  teal:`Apply professional photo editing to this image. CRITICAL: preserve 100% of the subject's identity — same face, body, pose and composition. Apply only: Teal & Orange color grade — warm orange skin tones, teal/cyan in shadows and background, high contrast, cinematic saturation split. No content changes, no new elements.`,
-  desat:`Apply professional photo editing to this image. CRITICAL: preserve 100% of the subject's identity — same face, body, pose and composition. Apply only: modern desaturated look — muted colors, lifted blacks (matte look), subtle cool-gray shadow cast, premium drama series aesthetic. No content changes, no new elements.`
+// ── PROMPTS: focused on atmosphere/lighting, not subject identity ──
+const LIGHTING_PROMPTS = {
+  golden: `Transform the lighting and color grade of this outdoor sports photo into a golden hour cinematic style. Apply: warm amber-golden light from upper-left, rich green foliage turning golden-olive, warm asphalt with soft golden reflections, subtle vignette, natural depth. Style: professional sports editorial photography, Lightroom golden hour preset. Focus only on light, color, and atmosphere — these will be used as a color reference layer only.`,
+  noir:   `Transform the lighting and color of this photo into a dramatic noir style: high contrast, near-monochrome with cool blue-silver tones, deep blacks, bright specular highlights, moody atmosphere. Color reference layer only.`,
+  teal:   `Apply a Teal & Orange cinematic color grade to this photo: warm orange skin tones, teal/cyan in shadows and environment, high contrast split-toning, blockbuster cinema look. Color reference layer only.`,
+  desat:  `Apply a modern desaturated matte look to this photo: muted colors, lifted blacks, subtle cool-gray shadows, premium drama series aesthetic. Color reference layer only.`
 };
 
-// ── GPT-IMAGE-1 EDIT CALL ──────────────────────────────────
-async function editWithGptImage1(apiKey, blob, mimeType, style, idx){
-  // Convert to PNG if needed (gpt-image-1 edits requires PNG)
-  const pngBlob = await convertToPng(blob, mimeType);
-
-  setStep(1,true); setRing(30, files[idx]?.name);
-
+// ── STEP 1: get AI lighting reference from gpt-image-1 ──────
+async function getAiLightingRef(apiKey, pngBlob, style, idx){
   const fd = new FormData();
   fd.append('image[]', pngBlob, 'photo.png');
-  fd.append('prompt', IMAGE_EDIT_PROMPTS[style] || IMAGE_EDIT_PROMPTS.golden);
+  fd.append('prompt', LIGHTING_PROMPTS[style] || LIGHTING_PROMPTS.golden);
   fd.append('model', 'gpt-image-1');
   fd.append('n', '1');
   fd.append('size', '1024x1024');
   fd.append('quality', 'high');
 
-  setStep(2,false); setRing(40, files[idx]?.name);
+  setStep(2,false); setRing(35, files[idx]?.name);
 
   const resp = await fetch('https://api.openai.com/v1/images/edits', {
     method: 'POST',
@@ -1071,7 +1077,7 @@ async function editWithGptImage1(apiKey, blob, mimeType, style, idx){
     body: fd
   });
 
-  setStep(3,false); setRing(85, files[idx]?.name);
+  setStep(3,false); setRing(65, files[idx]?.name);
 
   if(!resp.ok){
     let msg = `HTTP ${resp.status}`;
@@ -1083,24 +1089,137 @@ async function editWithGptImage1(apiKey, blob, mimeType, style, idx){
   const item = data?.data?.[0];
   if(item?.b64_json) return 'data:image/png;base64,' + item.b64_json;
   if(item?.url)      return item.url;
-  throw new Error('Resposta inesperada da API: ' + JSON.stringify(data).slice(0,100));
+  throw new Error('Resposta inesperada: ' + JSON.stringify(data).slice(0,80));
 }
 
-// Convert any image blob to PNG via canvas (required by gpt-image-1 edits)
+// ── STEP 2: Canvas blend — original luminance + AI color/light ─
+// Method: convert both images to Lab-like space, take Luma from original,
+// take Hue+Saturation from AI ref, combine. Pure pixel math, no API.
+async function blendLightingRef(origUrl, aiRefUrl){
+  // Load both images
+  const [origImg, aiImg] = await Promise.all([
+    loadImg(origUrl),
+    loadImg(aiRefUrl)
+  ]);
+
+  const W = origImg.naturalWidth;
+  const H = origImg.naturalHeight;
+
+  // Draw both onto canvases at the same size
+  const cOrig = imgToCanvas(origImg, W, H);
+  const cAi   = imgToCanvas(aiImg,   W, H); // AI ref resized to match
+
+  const dOrig = cOrig.getContext('2d').getImageData(0, 0, W, H).data;
+  const dAi   = cAi.getContext('2d').getImageData(0, 0, W, H).data;
+
+  // Output canvas
+  const cOut = document.createElement('canvas');
+  cOut.width = W; cOut.height = H;
+  const ctxOut = cOut.getContext('2d');
+  const idOut  = ctxOut.createImageData(W, H);
+  const dOut   = idOut.data;
+
+  // Blend strength: how much color/light from AI to mix in (0=original, 1=full AI color)
+  // We keep 100% of original luminance and blend in AI chroma + mild luma shift
+  const COLOR_STRENGTH = 0.72; // how much of AI color to take
+  const LUMA_SHIFT     = 0.28; // how much AI brightness affects result
+
+  for(let px = 0; px < W * H; px++){
+    const k = px * 4;
+
+    // Original pixel
+    const or = dOrig[k],   og = dOrig[k+1], ob = dOrig[k+2];
+    // AI reference pixel
+    const ar = dAi[k],     ag = dAi[k+1],   ab = dAi[k+2];
+
+    // Convert both to HSL
+    const [oh, os, ol] = rgbToHsl(or, og, ob);
+    const [ah, as2, al] = rgbToHsl(ar, ag, ab);
+
+    // Compose: original lightness (dominant) + AI hue/saturation + mild luma influence
+    const blendedL = ol * (1 - LUMA_SHIFT) + al * LUMA_SHIFT;
+    const blendedH = ah; // full AI hue (this drives the warm/cool look)
+    const blendedS = os * (1 - COLOR_STRENGTH) + as2 * COLOR_STRENGTH;
+
+    const [nr, ng, nb] = hslToRgb(blendedH, blendedS, blendedL);
+
+    dOut[k]   = clamp(nr);
+    dOut[k+1] = clamp(ng);
+    dOut[k+2] = clamp(nb);
+    dOut[k+3] = 255;
+  }
+
+  ctxOut.putImageData(idOut, 0, 0);
+
+  return new Promise(res => {
+    cOut.toBlob(blob => res(URL.createObjectURL(blob)), 'image/jpeg', 0.93);
+  });
+}
+
+// ── COLOR SPACE HELPERS ────────────────────────────────────
+function rgbToHsl(r, g, b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  let h, s, l=(max+min)/2;
+  if(max===min){ h=s=0; }
+  else{
+    const d=max-min;
+    s = l>0.5 ? d/(2-max-min) : d/(max+min);
+    switch(max){
+      case r: h=((g-b)/d+(g<b?6:0))/6; break;
+      case g: h=((b-r)/d+2)/6; break;
+      default:h=((r-g)/d+4)/6;
+    }
+  }
+  return [h, s, l];
+}
+function hslToRgb(h, s, l){
+  if(s===0) return [l*255, l*255, l*255];
+  const q = l<0.5 ? l*(1+s) : l+s-l*s;
+  const p = 2*l-q;
+  const hue2rgb = (p,q,t) => {
+    if(t<0)t+=1; if(t>1)t-=1;
+    if(t<1/6) return p+(q-p)*6*t;
+    if(t<1/2) return q;
+    if(t<2/3) return p+(q-p)*(2/3-t)*6;
+    return p;
+  };
+  return [
+    hue2rgb(p,q,h+1/3)*255,
+    hue2rgb(p,q,h)*255,
+    hue2rgb(p,q,h-1/3)*255
+  ];
+}
+function loadImg(url){
+  return new Promise((res, rej)=>{
+    const img=new Image(); img.crossOrigin='anonymous';
+    img.onload=()=>res(img);
+    img.onerror=()=>rej(new Error('Falha ao carregar imagem'));
+    img.src=url;
+  });
+}
+function imgToCanvas(img, W, H){
+  const c=document.createElement('canvas');
+  c.width=W; c.height=H;
+  c.getContext('2d').drawImage(img, 0, 0, W, H);
+  return c;
+}
+
+// Convert any image blob to PNG via canvas
 function convertToPng(blob, mimeType){
   return new Promise((resolve, reject)=>{
-    if(mimeType === 'image/png'){ resolve(blob); return; }
-    const url = URL.createObjectURL(blob);
-    const img = new Image();
-    img.onload = ()=>{
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
+    if(mimeType==='image/png'){ resolve(blob); return; }
+    const url=URL.createObjectURL(blob);
+    const img=new Image();
+    img.onload=()=>{
+      const c=document.createElement('canvas');
+      c.width=img.naturalWidth; c.height=img.naturalHeight;
+      c.getContext('2d').drawImage(img,0,0);
       URL.revokeObjectURL(url);
-      c.toBlob(b=>{ if(b) resolve(b); else reject(new Error('PNG convert failed')); }, 'image/png');
+      c.toBlob(b=>{ if(b) resolve(b); else reject(new Error('PNG convert failed')); },'image/png');
     };
-    img.onerror = ()=>reject(new Error('Falha ao carregar imagem para conversão'));
-    img.src = url;
+    img.onerror=()=>reject(new Error('Falha na conversão PNG'));
+    img.src=url;
   });
 }
 
