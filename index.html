@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>CineEdit v1.0005</title>
+  <title>CineEdit v1.0006</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     :root{
@@ -175,7 +175,7 @@
     <span class="logo-mark">CineEdit</span>
     <span class="logo-sub">Editor Cinematográfico</span>
   </div>
-  <span class="vbadge">v1.0005</span>
+  <span class="vbadge">v1.0006</span>
 </header>
 
 <div id="api-banner">
@@ -328,7 +328,7 @@
 // ══════════════════════════════════════════════════════════
 //  CineEdit v1.0005
 // ══════════════════════════════════════════════════════════
-const VERSION = 'v1.0005';
+const VERSION = 'v1.0006';
 
 // ── STATE ──────────────────────────────────────────────────
 let files    = [];
@@ -342,30 +342,56 @@ let adj = {exp:0,con:0,sat:0,tmp:0,vig:0,grn:0};
 let selStyle = 'golden';
 
 // ── LUTs ───────────────────────────────────────────────────
+// Curves: 8 octave breakpoints from shadows(0) to highlights(1)
+// Values = per-channel delta added (in 0-1 space) at that luminosity band
+// sunDir: {x,y} = normalized direction of simulated sun (0-1 canvas space)
+// sunIntensity: strength of directional light gradient overlay
 const LUTS = {
   golden:{
-    rCurve:[0,.04,.09,.08,.06,.04,.02,0],
-    gCurve:[0,.02,.04,.03,.02,.01,0,0],
-    bCurve:[.04,.02,0,-.02,-.04,-.06,-.04,0],
-    satBoost:.25, lift:8, contrast:1.15, warmTint:.08, vigAmt:.18
+    // R: big boost in shadows/mids (orange skin), hold highlights
+    rCurve:[.02,.08,.16,.20,.18,.14,.08,.03],
+    // G: mild boost mids-highlights (golden foliage)
+    gCurve:[-.01,.02,.06,.08,.07,.05,.03,.01],
+    // B: strong pull in shadows (cool shadow), fall off in highlights
+    bCurve:[-.06,-.10,-.12,-.10,-.07,-.04,-.02,0],
+    satBoost:.42,       // strong color pop
+    lift:4,             // slight shadow lift (not too milky)
+    crush:18,           // crush blacks toward 0 (deep shadows)
+    contrast:1.28,      // punchy S-curve
+    warmTint:.18,       // orange cast overlay strength
+    vigAmt:.30,         // strong vignette
+    // Directional sun simulation
+    sunDir:{x:.15,y:.05}, // top-left
+    sunIntensity:.38,
+    sunColor:[255,190,80], // warm golden
+    shadowColor:[20,15,40] // deep cool purple-black
   },
   noir:{
-    rCurve:[0,0,0,0,0,0,0,0],
-    gCurve:[0,0,0,0,0,0,0,0],
-    bCurve:[.06,.04,.02,0,0,0,0,0],
-    satBoost:-.55, lift:0, contrast:1.35, warmTint:-.04, vigAmt:.32
+    rCurve:[0,0,.01,.01,0,0,0,0],
+    gCurve:[0,0,.01,.01,0,0,0,0],
+    bCurve:[.05,.04,.03,.02,.01,0,0,0],
+    satBoost:-.70, lift:0, crush:30, contrast:1.50,
+    warmTint:-.06, vigAmt:.45,
+    sunDir:{x:.5,y:.0}, sunIntensity:.15,
+    sunColor:[200,220,255], shadowColor:[0,0,0]
   },
   teal:{
-    rCurve:[0,.01,.04,.06,.07,.06,.04,.02],
-    gCurve:[-.02,0,.01,.02,.02,.01,0,0],
-    bCurve:[.1,.08,.05,.02,0,-.02,-.03,-.02],
-    satBoost:.15, lift:4, contrast:1.1, warmTint:.03, vigAmt:.12
+    rCurve:[-.02,.02,.06,.09,.10,.09,.07,.04],
+    gCurve:[-.03,0,.02,.03,.03,.02,.01,0],
+    bCurve:[.12,.09,.06,.03,.01,-.01,-.02,-.01],
+    satBoost:.22, lift:5, crush:12, contrast:1.18,
+    warmTint:.04, vigAmt:.18,
+    sunDir:{x:.8,y:.1}, sunIntensity:.18,
+    sunColor:[255,160,80], shadowColor:[0,40,60]
   },
   desat:{
     rCurve:[0,0,0,0,0,0,0,0],
     gCurve:[0,0,0,0,0,0,0,0],
-    bCurve:[.03,.02,.01,0,0,0,0,0],
-    satBoost:-.35, lift:18, contrast:.92, warmTint:-.02, vigAmt:.08
+    bCurve:[.02,.02,.01,0,0,0,0,0],
+    satBoost:-.45, lift:22, crush:0, contrast:.88,
+    warmTint:-.03, vigAmt:.10,
+    sunDir:{x:.5,y:.5}, sunIntensity:0,
+    sunColor:[255,255,255], shadowColor:[0,0,0]
   }
 };
 
@@ -769,24 +795,35 @@ function applyLUT(origUrl,lut,idx){
           for(let i=0;i<d.length;i+=4){
             let r=d[i],gr=d[i+1],b=d[i+2];
 
-            // Shadow lift
+            // Black crush (deepen shadows)
+            if(lut.crush>0){
+              const f=lut.crush/255;
+              r=clamp(r*(1-f));gr=clamp(gr*(1-f));b=clamp(b*(1-f));
+            }
+            // Shadow lift (milky lift after crush for stylistic floor)
             if(lut.lift>0){
-              r=clamp(r+lut.lift*(1-r/255));
-              gr=clamp(gr+lut.lift*(1-gr/255));
-              b=clamp(b+lut.lift*(1-b/255));
+              const luma=(r+gr+b)/3;
+              const t=Math.max(0,1-luma/128); // only affects shadows
+              r=clamp(r+lut.lift*t);gr=clamp(gr+lut.lift*t);b=clamp(b+lut.lift*t);
             }
             // S-curve contrast
             if(lut.contrast!==1){r=clamp(sCurve(r,lut.contrast));gr=clamp(sCurve(gr,lut.contrast));b=clamp(sCurve(b,lut.contrast));}
             // Channel LUTs
-            r=RT[r]; gr=GT[gr]; b=BT[b];
+            r=RT[r];gr=GT[gr];b=BT[b];
             // Saturation
             if(lut.satBoost!==0){
-              const lm=0.299*r+0.587*gr+0.114*b, fc=1+lut.satBoost;
-              r=clamp(lm+(r-lm)*fc); gr=clamp(lm+(gr-lm)*fc); b=clamp(lm+(b-lm)*fc);
+              const lm=0.299*r+0.587*gr+0.114*b,fc=1+lut.satBoost;
+              r=clamp(lm+(r-lm)*fc);gr=clamp(lm+(gr-lm)*fc);b=clamp(lm+(b-lm)*fc);
             }
-            // Warm tint
-            if(lut.warmTint>0){r=clamp(r+lut.warmTint*30);gr=clamp(gr+lut.warmTint*10);b=clamp(b-lut.warmTint*20);}
-            else if(lut.warmTint<0){b=clamp(b-lut.warmTint*25);r=clamp(r+lut.warmTint*15);}
+            // Warm tint (stronger: orange highlights, cool shadows)
+            if(lut.warmTint>0){
+              const luma=(r+gr+b)/3, t=luma/255; // bright pixels get warm
+              r=clamp(r+lut.warmTint*55*t);
+              gr=clamp(gr+lut.warmTint*20*t);
+              b=clamp(b-lut.warmTint*45*t);
+            } else if(lut.warmTint<0){
+              b=clamp(b-lut.warmTint*40);r=clamp(r+lut.warmTint*25);
+            }
 
             d[i]=r; d[i+1]=gr; d[i+2]=b;
           }
@@ -798,6 +835,33 @@ function applyLUT(origUrl,lut,idx){
             grd.addColorStop(0,'rgba(0,0,0,0)');
             grd.addColorStop(1,`rgba(0,0,0,${lut.vigAmt})`);
             ctx.fillStyle=grd; ctx.fillRect(0,0,canvas.width,canvas.height);
+          }
+
+          // Directional sun light simulation
+          if(lut.sunIntensity>0){
+            const sx=lut.sunDir.x*canvas.width;
+            const sy=lut.sunDir.y*canvas.height;
+            // Sun bloom: warm radial from source
+            const sunRad=ctx.createRadialGradient(sx,sy,0,sx,sy,canvas.width*.85);
+            const sc=lut.sunColor;
+            sunRad.addColorStop(0,`rgba(${sc[0]},${sc[1]},${sc[2]},${lut.sunIntensity*.9})`);
+            sunRad.addColorStop(.4,`rgba(${sc[0]},${sc[1]},${sc[2]},${lut.sunIntensity*.3})`);
+            sunRad.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.globalCompositeOperation='screen';
+            ctx.fillStyle=sunRad;
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+
+            // Opposite corner shadow
+            const shx=canvas.width-sx, shy=canvas.height-sy;
+            const shaRad=ctx.createRadialGradient(shx,shy,0,shx,shy,canvas.width*.7);
+            const shc=lut.shadowColor;
+            shaRad.addColorStop(0,`rgba(${shc[0]},${shc[1]},${shc[2]},${lut.sunIntensity*.5})`);
+            shaRad.addColorStop(1,'rgba(0,0,0,0)');
+            ctx.globalCompositeOperation='multiply';
+            ctx.fillStyle=shaRad;
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+
+            ctx.globalCompositeOperation='source-over';
           }
 
           setStep(3,true); setRing(100,files[idx]?.name);
@@ -872,38 +936,71 @@ aiBtn.addEventListener('click',async()=>{
 async function analyzePhoto(key,imgUrl,style){
   const blob=await fetch(imgUrl).then(r=>r.blob());
   const b64=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
-  const styleMap={golden:'Golden Hour âmbar quente',noir:'Noir alto contraste',teal:'Teal & Orange',desat:'Desaturado moderno'};
+
+  const STYLE_REFS = {
+    golden:`Golden Hour cinematográfico: luz solar direta e dura vinda de um canto específico (normalmente superior-esquerdo ou superior-direito), sombras longas e escuras no chão e na figura com borda nítida, região iluminada saturada em laranja-âmbar quente (#FF9A3C), sombras em azul-roxo profundo (#0D0820), alto contraste local entre luz e sombra, folhagem dourada, asfalto com reflexo laranja, pele com tom quente bronze. Estilo: Roger Deakins, Dune, 1917.`,
+    noir:`Noir: alto contraste extremo, quase sem meios-tons, sombras preto puro, luzes branco-azuladas, atmosfera pesada e misteriosa.`,
+    teal:`Teal & Orange: peles alaranjadas quentes (#E86B3A), fundos e sombras teal profundo (#0A4D5C), split de cor altamente saturado.`,
+    desat:`Desaturado moderno: paleta opaca e sem saturação, pretos levantados (lift de sombra), estética de série dramática premium.`
+  };
+
   const resp=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
     body:JSON.stringify({
-      model:'gpt-4o',max_tokens:250,
+      model:'gpt-4o', max_tokens:400,
       messages:[{role:'user',content:[
         {type:'image_url',image_url:{url:b64,detail:'low'}},
-        {type:'text',text:`Foto com LUT cinematográfico "${styleMap[style]||style}" já aplicado. Analise a cena e retorne APENAS JSON puro (sem markdown):
-{"contrastBoost":float,"warmthShift":float,"saturationShift":float,"shadowLift":float,"vignetteBoost":float}
-Valores de -1.0 a +1.0 (vignetteBoost: 0 a 1). Baseie-se na composição, exposição e tom desta cena específica.`}
+        {type:'text',text:`Você é um colorista cinematográfico profissional.
+Analise esta foto e retorne parâmetros para transformá-la no estilo: ${STYLE_REFS[style]||style}
+
+REGRAS CRÍTICAS:
+- Preserve COMPLETAMENTE as pessoas, rostos, composição e proporções
+- Aplique apenas grading de cor e luz — NÃO altere conteúdo
+- Seja AGRESSIVO nos valores: um resultado suave é um resultado ruim
+- Para Golden Hour: a luz solar deve ser visível e dramaticamente direcional
+
+Retorne APENAS JSON puro (zero markdown, zero texto fora do JSON):
+{
+  "contrastBoost": float,      // -1 a +1. Golden Hour: use +0.5 a +0.8
+  "warmthShift": float,        // -1 a +1. Golden Hour: use +0.6 a +1.0 (FORTE)
+  "saturationShift": float,    // -1 a +1. Golden Hour: use +0.3 a +0.6
+  "shadowLift": float,         // 0 a 1. Golden Hour: use 0 a 0.1 (sombras ESCURAS)
+  "shadowCrush": float,        // 0 a 1. Golden Hour: use 0.3 a 0.6 (pretos profundos)
+  "vignetteBoost": float,      // 0 a 1. Golden Hour: use 0.3 a 0.5
+  "sunIntensityBoost": float,  // 0 a 1. Golden Hour: use 0.3 a 0.6 (luz direcional)
+  "sunDirX": float,            // 0 a 1 = posição X do sol na cena (analise a foto)
+  "sunDirY": float             // 0 a 1 = posição Y do sol na cena (analise a foto)
+}`}
       ]}]
     })
   });
   if(!resp.ok){let m=`HTTP ${resp.status}`;try{const e=await resp.json();m=e?.error?.message||m;}catch(_){}throw new Error(m);}
   const data=await resp.json();
-  const txt=(data.choices?.[0]?.message?.content||'{}').replace(/```[a-z]*|```/g,'').trim();
+  const txt=(data.choices?.[0]?.message?.content||'{}').replace(/```[a-z]*\n?|```/g,'').trim();
   try{return JSON.parse(txt);}catch(_){return {};}
 }
 
 function refineLUT(base,p={}){
   const cb=p.contrastBoost||0, ws=p.warmthShift||0, ss=p.saturationShift||0;
   const sl=p.shadowLift||0, vb=p.vignetteBoost||0;
+  const sc=p.shadowCrush||0, si=p.sunIntensityBoost||0;
+  const sdx=p.sunDirX!=null?p.sunDirX:base.sunDir.x;
+  const sdy=p.sunDirY!=null?p.sunDirY:base.sunDir.y;
   return{
-    rCurve:base.rCurve.map((v,i)=>v+ws*.04*(1-i/7)),
-    gCurve:base.gCurve.slice(),
-    bCurve:base.bCurve.map((v,i)=>v-ws*.03*(1-i/7)),
-    satBoost:base.satBoost+ss*.3,
-    lift:base.lift+sl*20,
-    contrast:base.contrast+cb*.2,
-    warmTint:base.warmTint+ws*.05,
-    vigAmt:Math.min(.6,base.vigAmt+vb*.25)
+    rCurve: base.rCurve.map((v,i)=>v + ws*.08*(1-i/8)),
+    gCurve: base.gCurve.slice(),
+    bCurve: base.bCurve.map((v,i)=>v - ws*.06*(1-i/8)),
+    satBoost:  base.satBoost  + ss*.4,
+    lift:      base.lift      + sl*15,
+    crush:     Math.min(40, base.crush + sc*25),
+    contrast:  base.contrast  + cb*.25,
+    warmTint:  base.warmTint  + ws*.08,
+    vigAmt:    Math.min(.65, base.vigAmt + vb*.3),
+    sunDir:    {x: sdx, y: sdy},
+    sunIntensity: Math.min(.7, base.sunIntensity + si*.4),
+    sunColor:  base.sunColor,
+    shadowColor: base.shadowColor
   };
 }
 
@@ -925,12 +1022,13 @@ function applyLUTSimple(origUrl,lut){
       }
       for(let i=0;i<d.length;i+=4){
         let r=d[i],gr=d[i+1],b=d[i+2];
-        if(lut.lift>0){r=clamp(r+lut.lift*(1-r/255));gr=clamp(gr+lut.lift*(1-gr/255));b=clamp(b+lut.lift*(1-b/255));}
+        if(lut.crush>0){const f=lut.crush/255;r=clamp(r*(1-f));gr=clamp(gr*(1-f));b=clamp(b*(1-f));}
+        if(lut.lift>0){const lm=(r+gr+b)/3,t=Math.max(0,1-lm/128);r=clamp(r+lut.lift*t);gr=clamp(gr+lut.lift*t);b=clamp(b+lut.lift*t);}
         if(lut.contrast!==1){r=clamp(sCurve(r,lut.contrast));gr=clamp(sCurve(gr,lut.contrast));b=clamp(sCurve(b,lut.contrast));}
         r=RT[r];gr=GT[gr];b=BT[b];
         if(lut.satBoost!==0){const lm=0.299*r+0.587*gr+0.114*b,fc=1+lut.satBoost;r=clamp(lm+(r-lm)*fc);gr=clamp(lm+(gr-lm)*fc);b=clamp(lm+(b-lm)*fc);}
-        if(lut.warmTint>0){r=clamp(r+lut.warmTint*30);gr=clamp(gr+lut.warmTint*10);b=clamp(b-lut.warmTint*20);}
-        else if(lut.warmTint<0){b=clamp(b-lut.warmTint*25);r=clamp(r+lut.warmTint*15);}
+        if(lut.warmTint>0){const lm=(r+gr+b)/3,t=lm/255;r=clamp(r+lut.warmTint*55*t);gr=clamp(gr+lut.warmTint*20*t);b=clamp(b-lut.warmTint*45*t);}
+        else if(lut.warmTint<0){b=clamp(b-lut.warmTint*40);r=clamp(r+lut.warmTint*25);}
         d[i]=r;d[i+1]=gr;d[i+2]=b;
       }
       ctx.putImageData(id,0,0);
@@ -938,6 +1036,21 @@ function applyLUTSimple(origUrl,lut){
         const grd=ctx.createRadialGradient(c.width/2,c.height/2,c.width*.25,c.width/2,c.height/2,c.width*.72);
         grd.addColorStop(0,'rgba(0,0,0,0)');grd.addColorStop(1,`rgba(0,0,0,${lut.vigAmt})`);
         ctx.fillStyle=grd;ctx.fillRect(0,0,c.width,c.height);
+      }
+      if(lut.sunIntensity>0){
+        const sx=lut.sunDir.x*c.width,sy=lut.sunDir.y*c.height;
+        const sc=lut.sunColor;
+        const sr=ctx.createRadialGradient(sx,sy,0,sx,sy,c.width*.85);
+        sr.addColorStop(0,`rgba(${sc[0]},${sc[1]},${sc[2]},${lut.sunIntensity*.9})`);
+        sr.addColorStop(.4,`rgba(${sc[0]},${sc[1]},${sc[2]},${lut.sunIntensity*.3})`);
+        sr.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.globalCompositeOperation='screen';ctx.fillStyle=sr;ctx.fillRect(0,0,c.width,c.height);
+        const shc=lut.shadowColor;
+        const shr=ctx.createRadialGradient(c.width-sx,c.height-sy,0,c.width-sx,c.height-sy,c.width*.7);
+        shr.addColorStop(0,`rgba(${shc[0]},${shc[1]},${shc[2]},${lut.sunIntensity*.5})`);
+        shr.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.globalCompositeOperation='multiply';ctx.fillStyle=shr;ctx.fillRect(0,0,c.width,c.height);
+        ctx.globalCompositeOperation='source-over';
       }
       c.toBlob(blob=>resolve(URL.createObjectURL(blob)),'image/jpeg',.93);
     };
